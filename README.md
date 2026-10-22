@@ -7,7 +7,7 @@ This program removes patient and personal information from your business files *
 - **The same person always gets the same stand-in.** "Maria Gonzalez" is `PERSON_0412` in every email and spreadsheet, so conversations still make sense.
 - It follows the **HIPAA Safe Harbor** method, which covers all 18 types of identifiers.
 
-> **Status: Phase 3.** Works today:
+> **Works with:**
 > - email (`.eml`, `.mbox`, Outlook `.pst`)
 > - spreadsheets (`.csv`, `.xlsx`)
 > - Slack workspace exports (`.zip`)
@@ -16,7 +16,7 @@ This program removes patient and personal information from your business files *
 > - medical images (`.dcm` DICOM)
 > - JSON files and plain text
 >
-> Voice recordings are never exported. Coming in Phase 4: the review web page and the full audit report. Files the scrubber can't handle are **never exported**. They are listed in the report instead.
+> Voice recordings are never exported. You review everything in your web browser, and the scrubber writes a data manifest and a de-identification report for your compliance officer. Files the scrubber can't handle are **never exported**. They are listed in the report instead.
 
 ---
 
@@ -74,7 +74,7 @@ Open **Terminal** (Mac) or **PowerShell** (Windows) in the `datafrenzy-scrubber`
 docker compose up
 ```
 
-You will see progress messages. When it says **Finished**, it shows how many files were exported, how many are waiting for review, and how many were held back.
+You will see progress messages. When it says **Finished**, open **<http://localhost:8080>** in your web browser. That's the review screen. Leave the Terminal window open while you review. To stop, press `Ctrl+C` in Terminal.
 
 It's safe to run again at any time. Files that are already done are skipped. If your computer shuts down halfway, run the same command again and it continues where it stopped.
 
@@ -82,38 +82,31 @@ It's safe to run again at any time. Files that are already done are skipped. If 
 
 Everything is written to the **`output`** folder:
 
-| Folder | What's in it |
+| File or folder | What's in it |
 |---|---|
 | `output/scrubbed/` | Your files with identifiers removed, in the same folders and formats as `input`. Folder and file names are scrubbed too. |
-| `output/reports/run-summary.json` | Counts of what was removed for each of the 18 identifier types, which files were held back and why, and which files are waiting for review. |
+| `output/manifest.csv` (and `.json`) | What the export contains, per source: number of files, size, records or messages, and the years covered. Data Frenzy uses this to get buyer quotes. |
+| `output/reports/deidentification-report.pdf` (and `.html`) | The de-identification report for your compliance officer. It covers the method, the 18-identifier checklist with counts, the double-check results, what was held back, review decisions, settings and software versions, plus a signature section. |
 
-Open a few scrubbed files to check them. Emails open in Apple Mail, Outlook or Thunderbird, and spreadsheets open in Excel.
+## 6. Review in your browser
 
-## 6. Review files that need a human look
+The review screen at <http://localhost:8080> works only on this computer. It shows:
 
-Some files are **held for review** instead of exported. This happens when the automatic double-check finds something that might still identify a person. They are not in `output/scrubbed/` until you approve them.
+- **Home:** how many identifiers of each type were removed, and the scrubber's status. The **Re-run** button is here.
+- **Review queue:** files the automatic double-check held back. Reasons include a possible leftover name, low-quality OCR, possible handwriting, or a context risk such as "our only pediatric surgeon", a rare disease plus a town, or "Dr. Smith's daughter". Each file shows what was flagged (highlighted) and the original next to the scrubbed version. Type your name and choose **Approve and export** or **Reject**. Decisions go into the report.
+- **Samples:** a random set of passages, original next to scrubbed, so you can spot-check the work.
+- **Report a missed identifier:** type the missed text (for example a nickname or a clinic name), pick its type, and add it to the deny list. Then press **Re-run** on the home page.
+- **Not exported:** everything that was held back, and why.
 
-To see them:
+Originals appear only on this screen, on your computer. They are never exported.
 
-```bash
-docker compose run --rm scrubber review list
-```
+## 7. Your own lists (optional)
 
-If a file is fine (or once you've added the missed name to `config/scrubber.yaml` and re-run), approve it:
-
-```bash
-docker compose run --rm scrubber review approve "path/shown/in/the/list" --by "Your Name"
-```
-
-To keep a file out permanently, use `review reject` the same way. (Phase 4 replaces these commands with a simple web page.)
-
-## 7. Teach it about missed names (optional)
-
-If you spot a name or ID that wasn't removed, add it to **`config/scrubber.yaml`** under `deny_list`, save, and run `docker compose up` again. Only affected files are redone.
+Names and words added on the review screen are saved in `config/review-additions.yaml`. For anything else, such as your own ID formats, extra job titles or town names to flag, or companies to keep, edit **`config/scrubber.yaml`**. Then run `docker compose up` again.
 
 ## 8. Export
 
-**Only share the `output` folder.** Never share these folders:
+**Only share the `output` folder** (scrubbed files, manifest and report). Never share these folders:
 
 - `state/`: holds the secret key that keeps the stand-ins consistent, and the lookup table. With these, someone could link stand-ins back together. Keep them, but keep them private.
 - `work/`: temporary copies, including files waiting for review (these still contain original data).
@@ -152,6 +145,8 @@ Large public companies such as UnitedHealthcare, Microsoft and Medicare are left
 | `unknown command: docker compose` | Your Docker is missing the Compose add-on. Docker Desktop includes it. On Mac with Homebrew, run `brew install docker-compose`. |
 | "Refusing to run: network interfaces present" | You started the scrubber some other way. Always use `docker compose up`, which switches the network off. |
 | A file shows as "could not be opened (encrypted or damaged)" | Remove the password in the program that made it, save a copy, put the copy in `input`, and run again. |
+| The review screen at localhost:8080 doesn't open | Check that Terminal still shows the scrubber running (`docker compose up`). If another program uses port 8080, change `127.0.0.1:8080:8080` in `docker-compose.yml` to e.g. `127.0.0.1:8090:8080` and open localhost:8090. |
+| Lots of files are held for "context risk" | These are phrases like "the CEO" or "our only surgeon". Review them, or switch a rule off in `config/scrubber.yaml` under `context_risk: disabled_rules`. |
 | A PDF shows as "text layer is unreadable" in the review list | The PDF uses an unusual font that hides its text. Open it, check it by eye, and approve or reject it. |
 
 For technical details, see [docs/TECHNICAL.md](docs/TECHNICAL.md).

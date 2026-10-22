@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Scrubber Review{% endblock %}</title>
+<style>
+  :root { --bg:#f7f6f2; --fg:#1c1e20; --muted:#5f6368; --line:#dad7cf; --card:#ffffff; --accent:#1f5f8b; --accent-fg:#fff;
+          --warn-bg:#fff4e0; --warn:#8a5200; --ok:#2f6b3a; --bad:#a3302a; --mark:#ffe28a; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141618; --fg:#e7e5e1; --muted:#a0a4a8; --line:#33373b; --card:#1c1f22; --accent:#79afd8; --accent-fg:#0d1b26;
+            --warn-bg:#3a2a10; --warn:#f0b75c; --ok:#80c58e; --bad:#ef8a83; --mark:#6b5a12; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { background:var(--card); border-bottom:1px solid var(--line); }
+  header .in, main { max-width:1100px; margin:0 auto; padding:12px 16px; }
+  header .in { display:flex; flex-wrap:wrap; gap:6px 18px; align-items:center; }
+  header b { margin-right:auto; }
+  nav a { color:var(--fg); text-decoration:none; padding:4px 2px; } nav a:hover { color:var(--accent); }
+  main { padding-top:20px; padding-bottom:60px; }
+  h1 { font-size:22px; margin:6px 0 14px; } h2 { font-size:17px; margin:26px 0 8px; }
+  a { color:var(--accent); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px; }
+  .stat b { display:block; font-size:24px; font-variant-numeric:tabular-nums; }
+  .stat span { color:var(--muted); font-size:13px; }
+  table { width:100%; border-collapse:collapse; background:var(--card); font-size:14px; }
+  th, td { border-bottom:1px solid var(--line); padding:7px 8px; text-align:left; vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:13px; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .wrap { overflow-x:auto; }
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  @media (max-width:700px) { .pair { grid-template-columns:1fr; } }
+  .pair pre { white-space:pre-wrap; word-break:break-word; margin:0; font:13px/1.45 ui-monospace, Menlo, monospace;
+              background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px; max-height:280px; overflow:auto; }
+  .label { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:4px; }
+  .msg { background:var(--warn-bg); color:var(--warn); border-radius:6px; padding:8px 12px; margin-bottom:14px; }
+  .pill { display:inline-block; font-size:12px; border-radius:99px; padding:1px 8px; border:1px solid var(--line); }
+  .pending { color:var(--warn); } .approved, .done { color:var(--ok); } .rejected { color:var(--bad); }
+  mark { background:var(--mark); color:inherit; padding:0 2px; border-radius:2px; }
+  form.inline { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:0; }
+  input[type=text], select, textarea { font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line);
+       border-radius:6px; padding:6px 8px; min-width:0; }
+  textarea { width:100%; min-height:60px; }
+  button { font:inherit; border:0; border-radius:6px; padding:7px 14px; cursor:pointer; background:var(--accent); color:var(--accent-fg); }
+  button.secondary { background:transparent; color:var(--fg); border:1px solid var(--line); }
+  button.danger { background:var(--bad); color:#fff; }
+  img.preview { max-width:100%; border:1px solid var(--line); border-radius:6px; background:#fff; }
+  .muted { color:var(--muted); } .small { font-size:13px; }
+</style>
+</head>
+<body>
+<header><div class="in">
+  <b>Data Frenzy Scrubber · Review</b>
+  <nav><a href="/">Home</a> · <a href="/review">Review queue</a> · <a href="/samples">Samples</a> ·
+  <a href="/quarantine">Not exported</a> · <a href="/deny-list">Deny list</a></nav>
+</div></header>
+<main>
+{% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
+{% block body %}{% endblock %}
+<p class="muted small" style="margin-top:40px">This screen runs only on this computer. Original files shown here are never exported. Version {{ version }}.</p>
+</main>
+</body>
+</html>

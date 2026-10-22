@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Not exported{% endblock %}
+{% block body %}
+<h1>Not exported</h1>
+<p class="muted">These files, or parts of files, were held back and are not in the export. They are listed in the audit report.</p>
+{% if rows %}
+<div class="wrap"><table><tr><th>Item (scrubbed name)</th><th>Reason</th></tr>
+{% for q in rows %}<tr><td>{{ q.item }}</td><td>{{ q.reason }}</td></tr>{% endfor %}
+</table></div>
+{% else %}<div class="card">Nothing was held back.</div>{% endif %}
+{% endblock %}

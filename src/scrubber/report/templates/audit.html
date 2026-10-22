@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>De-identification Report</title>
+{% if not for_pdf %}
+<style>
+  :root { --bg:#fbfaf7; --fg:#1d1f21; --muted:#5d6166; --line:#d9d6cf; --card:#ffffff; --accent:#1f5f8b; --warn:#9a5b00; --ok:#2f6b3a; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16181a; --fg:#e8e6e3; --muted:#a3a7ab; --line:#33373b; --card:#1d2023; --accent:#7fb4dc; --warn:#e0a84a; --ok:#7cc38a; } }
+  body { background:var(--bg); color:var(--fg); font:15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; margin:0; }
+  main { max-width:980px; margin:0 auto; padding:32px 16px 64px; }
+  h1 { font-size:26px; margin:0 0 4px; } h2 { font-size:19px; margin:36px 0 10px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  .meta { color:var(--muted); font-size:13px; }
+  table { border-collapse:collapse; width:100%; background:var(--card); font-size:14px; }
+  th, td { border:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top; }
+  th { background:color-mix(in srgb, var(--line) 35%, var(--card)); font-weight:600; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .card b { display:block; font-size:22px; } .warn { color:var(--warn); } .ok { color:var(--ok); }
+  .sign { margin-top:24px; } .sign div { border-bottom:1px solid var(--fg); height:32px; margin:18px 0 4px; max-width:420px; }
+  code { font-size:12px; word-break:break-all; }
+  @media print { body { background:#fff; color:#000; } }
+</style>
+{% endif %}
+</head>
+<body><main>
+<h1>De-identification Report</h1>
+<p class="meta">Data Frenzy Local Scrubber {{ s.version }} · generated {{ generated }} · configuration <code>{{ s.config_hash[:16] }}…</code></p>
+
+<h2>1. Summary</h2>
+<p><b>Method:</b> {{ s.method }} ("Safe Harbor"). All processing ran on the seller's own computer, inside a container with networking switched off. No data, telemetry or model request left the machine.</p>
+<table>
+<tr><th>Files exported</th><td class="num">{{ s.files.get('done', 0) }}</td><th>Held for human review</th><td class="num">{{ s.files.get('review', 0) }}</td></tr>
+<tr><th>Not exported (quarantined / rejected)</th><td class="num">{{ s.files.get('quarantined', 0) + s.files.get('rejected', 0) }}</td><th>Records exported</th><td class="num">{{ "{:,}".format(s.records_exported) }}</td></tr>
+<tr><th>Size exported</th><td class="num">{{ m.totals.output_size }}</td><th>Years covered</th><td class="num">{% if m.totals.year_range %}{{ m.totals.year_range[0] }}–{{ m.totals.year_range[1] }}{% else %}–{% endif %}</td></tr>
+</table>
+
+<h2>2. The 18 Safe Harbor identifiers</h2>
+<table>
+<tr><th>#</th><th>Identifier</th><th>How it is handled</th><th>Removed</th></tr>
+{% for c in s.identifiers %}
+<tr><td class="num">{{ c.number }}</td><td>{{ c.identifier }}</td><td>{{ handling[c.number] }}</td><td class="num">{{ "{:,}".format(c.removed) }}</td></tr>
+{% endfor %}
+</table>
+<p class="meta">Counts are occurrences removed in exported and reviewed files. One person mentioned many times counts many times.</p>
+
+<h2>3. Verification and residual risk</h2>
+<p>Every output file was re-opened in its normal format and checked for structure. All text was extracted again (images and scans were OCR'd again). Detection then ran a second time on the result, and faces were looked for again. A file with any remaining finding at or above confidence {{ residual_threshold }}, any context-risk flag, low OCR confidence or possible handwriting is held back until a person reviews it.</p>
+<table>
+<tr><th>Files verified</th><td class="num">{{ verified }}</td></tr>
+{% for k, v in flags_by_kind.items() %}<tr><th>Flags: {{ k }}</th><td class="num">{{ v }}</td></tr>{% endfor %}
+{% for k, v in residual_types.items() %}<tr><th>Residual finding type: {{ k }}</th><td class="num">{{ v }}</td></tr>{% endfor %}
+{% for k, v in risk_rules.items() %}<tr><th>Context risk: {{ k }}</th><td class="num">{{ v }}</td></tr>{% endfor %}
+</table>
+{% if pending %}
+<p class="warn"><b>{{ pending|length }} file(s) are still waiting for review and are not in the export:</b></p>
+<table><tr><th>File (scrubbed name)</th><th>Reasons</th></tr>
+{% for p in pending %}<tr><td>{{ p.file }}</td><td>{{ p.reasons|length }} flag(s): {{ (p.reasons[:3])|join('; ') }}{% if p.reasons|length > 3 %}; …{% endif %}</td></tr>{% endfor %}
+</table>
+{% else %}<p class="ok"><b>No files are waiting for review.</b></p>{% endif %}
+
+<h2>4. Human review decisions</h2>
+{% if decisions %}
+<table><tr><th>File (scrubbed name)</th><th>Decision</th><th>By</th><th>When</th><th>Flags</th><th>Note</th></tr>
+{% for d in decisions %}<tr><td>{{ d.file }}</td><td>{{ d.decision }}</td><td>{{ d.by }}</td><td>{{ d.at }}</td><td class="num">{{ d.reasons }}</td><td>{{ d.note }}</td></tr>{% endfor %}
+</table>
+{% else %}<p>No review decisions have been made.</p>{% endif %}
+<p>Reviewers reported <b>{{ misses.count }}</b> missed identifier(s){% if misses.types %} ({% for k, v in misses.types.items() %}{{ k }}: {{ v }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}. Each was added to the deny list, and the data was re-scrubbed. The deny list holds {{ deny_list_terms }} term(s). The terms themselves are not shown here.</p>
+
+<h2>5. Not exported</h2>
+<p>These files, or parts of files, were held back and are <b>not</b> in the export. Names shown are scrubbed.</p>
+{% if s.quarantined %}
+<table><tr><th>Item</th><th>Reason</th></tr>
+{% for q in s.quarantined %}<tr><td>{{ q.item }}</td><td>{{ q.reason }}</td></tr>{% endfor %}
+</table>
+{% else %}<p>Nothing was held back.</p>{% endif %}
+
+<h2>6. Data manifest</h2>
+<table><tr><th>Source</th><th>Files</th><th>Size</th><th>Records</th><th>Years</th><th>Held / not exported</th></tr>
+{% for name, b in m.sources.items() %}
+<tr><td>{{ name }}</td><td class="num">{{ b.files }}</td><td class="num">{{ b.output_size }}</td><td class="num">{{ "{:,}".format(b.records) }} {{ b.record_unit }}</td><td class="num">{% if b.year_range %}{{ b.year_range[0] }}–{{ b.year_range[1] }}{% else %}–{% endif %}</td><td class="num">{{ b.held_for_review }} / {{ b.not_exported }}</td></tr>
+{% endfor %}
+</table>
+
+<h2>7. Configuration</h2>
+<table>
+<tr><th>Configuration hash</th><td><code>{{ s.config_hash }}</code></td></tr>
+<tr><th>Reference year (for the 90+ rule)</th><td>{{ reference_year }}</td></tr>
+<tr><th>Detection thresholds</th><td>{% for k, v in thresholds.items() %}{{ k }} {{ v }}{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>
+<tr><th>Verification threshold</th><td>{{ residual_threshold }}</td></tr>
+<tr><th>Images</th><td>minimum OCR confidence {{ images.min_ocr_confidence }}, handwriting share {{ images.handwriting_share }}, face threshold {{ images.face_score_threshold }}</td></tr>
+<tr><th>Allowlisted organizations</th><td>{{ allow_orgs }} (large public companies, payers and agencies)</td></tr>
+<tr><th>Recording transcription</th><td>{{ "on (scrubbed transcripts only)" if transcribe else "off (recordings never exported)" }}</td></tr>
+</table>
+
+<h2>8. Software</h2>
+<table><tr><th>Component</th><th>Version</th></tr>
+{% for name, v in components %}<tr><td>{{ name }}</td><td>{{ v }}</td></tr>{% endfor %}
+</table>
+
+<h2>9. Limits and attestation</h2>
+<p>Safe Harbor also requires that the seller has <b>no actual knowledge</b> that the remaining information could identify a person, alone or combined with other information. This tool flags common risks: unique roles, rare conditions together with places, small-town and newsworthy references, and relationship references. It cannot know everything the seller knows. Automated detection is not perfect, and its measured recall on synthetic test data is not a guarantee for real data. Pseudonym tokens are consistent within this export, and the key that links them stays on the seller's computer and is never exported.</p>
+<p>This report records how the data was processed. It is not a legal opinion. For an Expert Determination (45 CFR 164.514(b)(1)), give the expert this report, the manifest and the tool's documentation.</p>
+<div class="sign">
+<p>I have reviewed this report and the items held for review, and I have no actual knowledge that the exported information could be used to identify an individual.</p>
+<div></div><span class="meta">Name and title of compliance officer</span>
+<div></div><span class="meta">Signature and date</span>
+</div>
+</main></body></html>

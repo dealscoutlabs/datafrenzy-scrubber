@@ -36,10 +36,21 @@ def main(argv: list[str] | None = None) -> int:
     rv.add_argument("--by", default="reviewer")
     rv.add_argument("--note", default="")
     sub.add_parser("check-network", help="confirm the container has no network")
+    sub.add_parser("watch", help="scrub, then wait for re-run requests from the review screen")
+    sub.add_parser("report", help="rewrite the manifest and audit report")
+    ui = sub.add_parser("review-ui", help="start the local review screen")
+    ui.add_argument("--port", type=int, default=8080)
+    ui.add_argument("--host", default=os.environ.get("SCRUBBER_UI_HOST", "127.0.0.1"))
     args = ap.parse_args(argv)
     cmd = args.cmd or "run"
 
     netguard.install()
+    if cmd == "review-ui":
+        # The review screen is the one part that listens on a port (localhost only, see
+        # docker-compose.yml). It cannot open outbound connections (socket guard above),
+        # and it never scrubs anything: re-runs are handed to the network-less scrubber.
+        from .ui.app import serve
+        return serve(_paths(args), args.config, args.host, args.port)
     if cmd == "check-network":
         ifaces = netguard.network_interfaces()
         print(f"Network interfaces visible: {ifaces}")
@@ -56,6 +67,10 @@ def main(argv: list[str] | None = None) -> int:
     runner = Runner(_paths(args), cfg, workers=args.workers)
     if cmd == "run":
         runner.run()
+    elif cmd == "watch":
+        return watch(args, runner)
+    elif cmd == "report":
+        runner.write_summary()
     elif cmd == "status":
         print(json.dumps(runner.summary(), indent=2))
     elif cmd == "review":
@@ -75,6 +90,28 @@ def main(argv: list[str] | None = None) -> int:
             runner.reject(args.file, args.by, args.note)
             runner.write_summary()
             print(f"Rejected (not exported): {args.file}")
+    return 0
+
+
+def watch(args, runner) -> int:
+    """Scrub everything, then wait for a re-run request (written by the review screen)."""
+    import signal
+    import time
+
+    from .pipeline import Runner
+
+    stop = {"now": False}
+    signal.signal(signal.SIGTERM, lambda *_: stop.update(now=True))
+    request = Path(args.work) / "requests" / "rerun.json"
+    runner.run()
+    print("Waiting for re-run requests from the review screen (http://localhost:8080). Press Ctrl+C to stop.")
+    while not stop["now"]:
+        if request.exists():
+            request.unlink()
+            print("Re-run requested from the review screen.")
+            runner = Runner(_paths(args), load_config(args.config), workers=args.workers)
+            runner.run()
+        time.sleep(2)
     return 0
 
 

@@ -1,5 +1,5 @@
 # Data Frenzy Local Scrubber
-#   docker compose up          -> scrub everything in ./input
+#   docker compose up               -> scrub everything in ./input, then open http://localhost:8080 to review
 #   docker compose run --rm tests   -> run the test suite (no network)
 services:
   scrubber:
@@ -22,7 +22,35 @@ services:
       - ./work:/work
       - ./state:/state
       - ./config:/config:ro
-    command: ["run"]
+    # scrub everything, then wait for re-run requests from the review screen
+    command: ["watch"]
+
+  # Review screen: http://localhost:8080 (published on this computer's loopback only).
+  # It shows originals side by side with scrubbed text, so it never processes or
+  # exports anything itself; re-runs are handed to the network-less scrubber above.
+  # Its Python process also blocks all outbound connections.
+  review:
+    build:
+      context: .
+      dockerfile: docker/scrubber.Dockerfile
+      target: runtime
+    image: datafrenzy/local-scrubber:0.1.0
+    depends_on: [scrubber]
+    command: ["review-ui", "--host", "0.0.0.0", "--port", "8080"]
+    ports:
+      - "127.0.0.1:8080:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./input:/input:ro
+      - ./output:/output
+      - ./work:/work
+      - ./state:/state
+      - ./config:/config      # writable: deny-list terms added on the review screen
 
   tests:
     profiles: ["test"]

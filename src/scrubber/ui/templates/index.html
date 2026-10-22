@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Overview</h1>
+<div class="grid">
+  <div class="card stat"><b>{{ s.files.get('done', 0) }}</b><span>files exported</span></div>
+  <div class="card stat"><b class="{{ 'pending' if pending else '' }}">{{ pending }}</b><span>waiting for your review</span></div>
+  <div class="card stat"><b>{{ s.files.get('quarantined', 0) + s.files.get('rejected', 0) }}</b><span>not exported</span></div>
+  <div class="card stat"><b>{{ "{:,}".format(s.records_exported) }}</b><span>records exported</span></div>
+</div>
+
+<div class="card">
+  <div class="label">Scrubber</div>
+  {% if status %}
+    <p style="margin:4px 0">Status: <b>{{ status.get('state', 'unknown') }}</b>{% if status.get('phase') %} — {{ status.phase }}{% endif %}
+    {% if status.get('state') == 'running' and status.get('total') %} ({{ status.done }} of {{ status.total }}){% endif %}</p>
+  {% else %}<p class="muted">The scrubber hasn't run yet.</p>{% endif %}
+  {% if requested %}<p class="pending">A re-run has been requested and will start shortly.</p>{% endif %}
+  <form method="post" action="/rerun" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button type="submit">Re-run the scrubber</button>
+    <span class="muted small">Use this after adding names to the deny list. Files are re-scrubbed with the new settings.</span>
+  </form>
+</div>
+
+<h2>Removed, by identifier type</h2>
+<div class="wrap"><table>
+<tr><th>#</th><th>HIPAA Safe Harbor identifier</th><th style="text-align:right">Removed</th></tr>
+{% for c in s.identifiers %}<tr><td>{{ c.number }}</td><td>{{ c.identifier }}</td><td class="num">{{ "{:,}".format(c.removed) }}</td></tr>{% endfor %}
+</table></div>
+
+<h2>Reports</h2>
+<p><a href="/reports/deidentification-report.html">De-identification report (HTML)</a> ·
+<a href="/reports/deidentification-report.pdf">PDF</a> · <a href="/reports/manifest.csv">Data manifest (CSV)</a> ·
+<a href="/reports/manifest.json">JSON</a></p>
+{% endblock %}

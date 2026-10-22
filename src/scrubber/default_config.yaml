@@ -149,12 +149,18 @@ labeled_ids:
     labels: ['user ?name', 'user ?id', 'login', 'log-in', 'portal (?:user|login|id|username)', 'handle', 'screen ?name', 'twitter', 'instagram', 'tiktok', 'facebook', 'linkedin', 'skype', 'slack (?:handle|user)', 'discord']
     value: handle
 
-# Context-risk keyword lists (used in Phase 4 to flag text for human review).
+# Context-risk checks: scrubbed text that could still point to one person goes
+# to human review. Built-in lists (src/scrubber/detect/context_risk.py) cover
+# common titles, rare conditions and newsworthy events; add your own here.
 context_risk:
-  unique_roles: []
-  rare_conditions: []
-  small_towns: []
-  relationship_terms: []
+  unique_roles: []          # e.g. ["head of radiology", "our pilot"]
+  rare_conditions: []       # e.g. ["Kawasaki disease"]
+  small_towns: []           # place names that would identify someone, e.g. ["Bird-in-Hand"]
+  distinctive_events: []    # e.g. ["the bridge collapse"]
+  relationship_terms: []    # e.g. ["the pastor's wife"]
+  # Rule names to switch off: "unique role or title", "small-town reference",
+  # "distinctive event", "relationship reference", "rare condition with a location"
+  disabled_rules: []
 
 email:
   # Headers kept (after scrubbing). Everything else is removed, including

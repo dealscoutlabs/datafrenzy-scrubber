@@ -115,6 +115,8 @@ def _restore_tally(raw: str | None) -> Tally:
         t.records = d.get("records", 0)
         t.messages = d.get("messages", 0)
         t.issues = list(d.get("issues", []))
+        t.flags = list(d.get("flags", []))
+        t.samples = list(d.get("samples", []))
     return t
 
 
@@ -346,8 +348,21 @@ class Runner:
                 self._finalize_if_ready(rel)
 
     def _progress(self, done: int, total: int, t0: float) -> None:
+        self.status(phase="scrubbing", done=done, total=total)
         if done == total or done % max(1, total // 20) == 0:
             self.echo(f"  {done:,}/{total:,} done ({time.time() - t0:,.0f}s)")
+
+    def status(self, **fields) -> None:
+        """Progress for the review screen (/work/status.json)."""
+        path = self.paths.work / "status.json"
+        try:
+            current = json.loads(path.read_text()) if path.exists() else {}
+        except ValueError:
+            current = {}
+        current.update(fields, updated=time.time())
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(current))
+        tmp.replace(path)
 
     def _finalize_if_ready(self, rel: str) -> None:
         shards = self.store.shards(rel)
@@ -377,10 +392,11 @@ class Runner:
             tally.issues += ctx.tally.issues
             self._cleanup_parts(rel)
         fields = dict(counts=dict(tally.counts), years=sorted(tally.years), records=tally.records,
-                      verify=tally.issues)
+                      messages=tally.messages, verify=tally.issues)
+        self.store.set_samples(rel, tally.samples)
         if tally.issues:
             self.store.update_file(rel, status="review", reason="needs human review", **fields)
-            self.store.add_review(rel, tally.issues)
+            self.store.add_review(rel, tally.issues, tally.flags)
         else:
             self._release(rel, f["out_rel"])
             self.store.update_file(rel, status="done", reason=None, **fields)
@@ -460,14 +476,20 @@ class Runner:
         }
 
     def write_summary(self) -> dict:
+        """run-summary.json, the data manifest and the de-identification audit report."""
+        from .report import audit, manifest
         s = self.summary()
         self.paths.reports.mkdir(parents=True, exist_ok=True)
         (self.paths.reports / "run-summary.json").write_text(json.dumps(s, indent=2))
+        m = manifest.build(self)
+        manifest.write(m, self.paths.output)
+        audit.write(self, s, m)
         return s
 
     def run(self) -> dict:
         for p in (self.paths.output, self.paths.work, self.paths.state):
             p.mkdir(parents=True, exist_ok=True)
+        self.status(state="running", phase="scanning", done=0, total=0, started=time.time())
         self.scan()
         self.convert_pst()
         self.harvest()
@@ -480,7 +502,9 @@ class Runner:
         for r in self.store.files("processing"):
             self._finalize_if_ready(r["rel"])
         self.cleanup_conversions()
+        self.status(phase="writing reports")
         s = self.write_summary()
+        self.status(state="idle", phase="finished", finished=time.time(), files=s["files"])
         self.echo(f"Finished. Exported: {s['files'].get('done', 0):,} files. "
                   f"Waiting for review: {s['files'].get('review', 0):,}. "
                   f"Not exported (quarantined): {s['files'].get('quarantined', 0):,}.")

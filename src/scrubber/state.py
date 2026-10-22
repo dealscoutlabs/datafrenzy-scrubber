@@ -51,7 +51,19 @@ CREATE TABLE IF NOT EXISTS review (
     rel TEXT PRIMARY KEY, reasons TEXT, status TEXT NOT NULL,   -- pending|approved|rejected
     decided_by TEXT, decided_at REAL, note TEXT
 );
+CREATE TABLE IF NOT EXISTS review_log (           -- every decision, kept for the audit report
+    id INTEGER PRIMARY KEY, rel TEXT, out_rel TEXT, decision TEXT, decided_by TEXT, decided_at REAL, note TEXT,
+    reasons TEXT
+);
+CREATE TABLE IF NOT EXISTS samples (              -- before/after text for the review screen (local only)
+    rel TEXT, n INTEGER, original TEXT, scrubbed TEXT, PRIMARY KEY (rel, n)
+);
+CREATE TABLE IF NOT EXISTS misses (               -- identifiers a reviewer reported as missed (local only)
+    id INTEGER PRIMARY KEY, rel TEXT, term TEXT, etype TEXT, note TEXT, reported_by TEXT, reported_at REAL
+);
 """
+
+MIGRATIONS = [("files", "messages", "INTEGER"), ("review", "details", "TEXT")]
 
 
 class Store:
@@ -63,6 +75,10 @@ class Store:
         self._pid = None
         self._conn: sqlite3.Connection | None = None
         self.conn.executescript(SCHEMA)
+        for table, col, typ in MIGRATIONS:
+            cols = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+            if col not in cols:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -203,13 +219,44 @@ class Store:
     def quarantined(self) -> list[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM quarantine ORDER BY item").fetchall()
 
-    def add_review(self, rel: str, reasons: list[str]) -> None:
-        self.conn.execute("INSERT OR REPLACE INTO review (rel, reasons, status) VALUES (?,?, 'pending')",
-                          (rel, json.dumps(reasons)))
+    def add_review(self, rel: str, reasons: list[str], details: list[dict] | None = None) -> None:
+        self.conn.execute("INSERT OR REPLACE INTO review (rel, reasons, status, details) VALUES (?,?, 'pending', ?)",
+                          (rel, json.dumps(reasons), json.dumps(details or [])))
 
     def decide_review(self, rel: str, status: str, by: str, note: str = "") -> None:
-        self.conn.execute("UPDATE review SET status=?, decided_by=?, decided_at=?, note=? WHERE rel=?",
-                          (status, by, time.time(), note, rel))
+        now = time.time()
+        with self.tx() as c:
+            c.execute("UPDATE review SET status=?, decided_by=?, decided_at=?, note=? WHERE rel=?",
+                      (status, by, now, note, rel))
+            row = c.execute("SELECT r.reasons, f.out_rel FROM review r JOIN files f ON f.rel = r.rel WHERE r.rel=?",
+                            (rel,)).fetchone()
+            c.execute("INSERT INTO review_log (rel, out_rel, decision, decided_by, decided_at, note, reasons)"
+                      " VALUES (?,?,?,?,?,?,?)", (rel, row["out_rel"] if row else None, status, by, now, note,
+                                                   row["reasons"] if row else "[]"))
+
+    def review_log(self) -> list[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM review_log ORDER BY decided_at").fetchall()
+
+    # ---- samples / misses (local review screen only)
+    def set_samples(self, rel: str, samples: list[dict]) -> None:
+        with self.tx() as c:
+            c.execute("DELETE FROM samples WHERE rel=?", (rel,))
+            c.executemany("INSERT INTO samples VALUES (?,?,?,?)",
+                          [(rel, i, s["original"], s["scrubbed"]) for i, s in enumerate(samples)])
+
+    def samples(self, rel: str | None = None, limit: int = 20, random_order: bool = False) -> list[sqlite3.Row]:
+        order = "RANDOM()" if random_order else "rel, n"
+        if rel:
+            return self.conn.execute(f"SELECT * FROM samples WHERE rel=? ORDER BY {order} LIMIT ?", (rel, limit)).fetchall()
+        return self.conn.execute(f"SELECT s.* FROM samples s JOIN files f ON f.rel = s.rel "
+                                 f"ORDER BY {order} LIMIT ?", (limit,)).fetchall()
+
+    def add_miss(self, rel: str | None, term: str, etype: str, note: str, by: str) -> None:
+        self.conn.execute("INSERT INTO misses (rel, term, etype, note, reported_by, reported_at) VALUES (?,?,?,?,?,?)",
+                          (rel, term, etype, note, by, time.time()))
+
+    def misses(self) -> list[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM misses ORDER BY reported_at").fetchall()
 
     def reviews(self, status: str | None = None) -> list[sqlite3.Row]:
         if status:

@@ -40,15 +40,39 @@ class Context:
         self.store.quarantine(item, self.rel, reason, mime, size)
         self.tally.counts["QUARANTINED_PARTS"] += 1
 
-    def issue(self, message: str) -> None:
-        """A verification or residual-risk problem: the file goes to human review."""
+    def issue(self, message: str, kind: str = "verification", snippet: str | None = None) -> None:
+        """A verification or residual-risk problem: the file goes to human review.
+        `message` must not contain identifiers (it reaches the audit report);
+        `snippet` is scrubbed output context shown only on the local review screen."""
         self.tally.issues.append(message)
+        self.tally.flags.append({"kind": kind, "message": message, "snippet": snippet})
 
     def residual(self, text: str, where: str) -> None:
-        """Re-run detection on scrubbed text; anything left is an issue."""
+        """Re-run detection on scrubbed text; anything left is an issue. Then the
+        context-risk checks: text that could still point to one person."""
         if not text or not text.strip():
             return
         threshold = float(self.cfg["verification"]["residual_threshold"])
         for f in self.scrubber.detector.detect(text):
             if f.score >= threshold:
-                self.issue(f"{where}: residual {f.etype} (score {f.score:.2f}) after scrubbing")
+                self.issue(f"{where}: residual {f.etype} (score {f.score:.2f}) after scrubbing", "residual",
+                           _snippet(text, f.start, f.end))
+        for r in _risk(self.cfg).check(text):
+            self.issue(f"{where}: context risk - {r.rule}", "context-risk", _snippet(text, r.start, r.end))
+
+
+_RISK: dict = {}
+
+
+def _risk(cfg: dict):
+    from ..detect.context_risk import ContextRisk
+    key = id(cfg)
+    if key not in _RISK:
+        _RISK.clear()
+        _RISK[key] = ContextRisk(cfg)
+    return _RISK[key]
+
+
+def _snippet(text: str, start: int, end: int, pad: int = 80) -> str:
+    a, b = max(0, start - pad), min(len(text), end + pad)
+    return ("…" if a else "") + text[a:start] + "⟦" + text[start:end] + "⟧" + text[end:b] + ("…" if b < len(text) else "")

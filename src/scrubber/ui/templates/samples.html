@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Samples{% endblock %}
+{% block body %}
+<h1>Random sample</h1>
+<p class="muted">Twenty random passages that were changed, shown original and scrubbed side by side. Reload for a new sample. If you spot something that should have been removed, add it to the deny list below.</p>
+{% for r in rows %}
+<div class="card">
+  <div class="muted small" style="margin-bottom:6px"><a href="/review/{{ r.fid }}">{{ r.out_rel }}</a></div>
+  <div class="pair">
+    <div><div class="label">Original (this computer only)</div><pre>{{ r.original }}</pre></div>
+    <div><div class="label">Scrubbed</div><pre>{{ r.scrubbed }}</pre></div>
+  </div>
+</div>
+{% else %}<div class="card">No samples yet. Run the scrubber first.</div>{% endfor %}
+<h2>Report a missed identifier</h2>
+{% set fid = None %}{% set back_to = '/samples' %}
+{% include "miss_form.html" %}
+{% endblock %}

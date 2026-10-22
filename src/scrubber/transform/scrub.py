@@ -3,6 +3,7 @@ pseudonym token or a Safe Harbor generalization (presidio-anonymizer)."""
 
 from __future__ import annotations
 
+import random
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -26,12 +27,29 @@ class Scrubbed:
 class Tally:
     """Per-job counters that end up in the audit report and manifest."""
 
+    SAMPLE_CAP = 5
+
     def __init__(self):
         self.counts: Counter = Counter()
         self.years: set[int] = set()
         self.records = 0          # rows / messages / lines exported
         self.messages = 0         # email messages (for mbox verification)
         self.issues: list[str] = []
+        self.flags: list[dict] = []    # structured issues for the review screen (local only)
+        self.samples: list[dict] = []  # before/after text pairs for the review screen (local only)
+        self._seen = 0
+        self._rng = random.Random(0)
+
+    def sample(self, original: str, scrubbed: str) -> None:
+        """Reservoir sample of changed text, deterministic per run."""
+        self._seen += 1
+        pair = {"original": original[:1500], "scrubbed": scrubbed[:1500]}
+        if len(self.samples) < self.SAMPLE_CAP:
+            self.samples.append(pair)
+        else:
+            j = self._rng.randrange(self._seen)
+            if j < self.SAMPLE_CAP:
+                self.samples[j] = pair
 
     def add(self, other: "Tally") -> None:
         self.counts.update(other.counts)
@@ -39,10 +57,12 @@ class Tally:
         self.records += other.records
         self.messages += other.messages
         self.issues += other.issues
+        self.flags += other.flags
+        self.samples = (self.samples + other.samples)[: self.SAMPLE_CAP * 2]
 
     def to_dict(self) -> dict:
         return {"counts": dict(self.counts), "years": sorted(self.years), "records": self.records,
-                "messages": self.messages, "issues": self.issues}
+                "messages": self.messages, "issues": self.issues, "flags": self.flags, "samples": self.samples}
 
 
 class TextScrubber:
@@ -76,6 +96,8 @@ class TextScrubber:
         new = self.anonymizer.anonymize(text=text, analyzer_results=results, operators=self.operators).text
         if tally is not None:
             self._count(findings, tally)
+            if len(text.strip()) >= 30:
+                tally.sample(text, new)
         return Scrubbed(new, findings)
 
     def scrub(self, text: str, tally: Tally | None = None, detect_text: str | None = None) -> Scrubbed:

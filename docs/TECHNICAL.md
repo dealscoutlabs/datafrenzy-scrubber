@@ -1,4 +1,4 @@
-# Technical notes (Phases 1–3)
+# Technical notes (Phases 1–4)
 
 ## Layout
 
@@ -109,11 +109,44 @@ Parts covered:
   - A spoken-digits recognizer catches numbers as transcripts write them ("2-1-2-5-5-5-0-1-4-3").
   - The real transcription test (espeak-ng synthetic speech → Whisper → scrub) runs only in that image.
 
+## Phase 4: review screen, context risk, manifest, audit report
+
+- **Two services.** `docker compose up` starts `scrubber` (`watch`) and `review` (`review-ui`).
+  - `scrubber` runs with `network_mode: none`. It scrubs everything, then polls `/work/requests/rerun.json`. Progress goes to `/work/status.json`.
+  - `review` is the only service with a port, published on `127.0.0.1:8080`. Its process installs the same socket guard: no outbound connects or DNS. Uvicorn is handed a socket bound in advance, so no name lookup is needed.
+  - `review` never scrubs. It moves approved files from staging to `/output`, records decisions and deny-list additions, and asks `scrubber` to re-run.
+- **Review screen security.**
+  - Requests are refused unless the Host is `localhost`/`127.0.0.1`/`::1`, which blocks DNS rebinding.
+  - POSTs from another origin are refused, and every form carries a CSRF token that changes on each restart.
+  - Pages are sent with `Cache-Control: no-store`, a strict CSP and `X-Frame-Options: DENY`.
+  - Original previews are served only from paths under `/input`, or under `/work/pst` for converted mailboxes.
+- **Context risk** (`detect/context_risk.py`). This runs inside `Context.residual()`, so it covers every output text the verification pass reads.
+  - Rules: unique role or title ("our only …", "the CEO"); rare condition **with** a place (a place token, ZIP3, state, town words); small-town reference; distinctive event; relationship reference ("Dr. X's daughter", "the owner's son").
+  - Built-in lists can be extended, and rules switched off, under `context_risk:`.
+  - A hit holds the file for review with a highlighted snippet of the *scrubbed* text. The snippet is stored locally and never reaches a report.
+- **Samples.** A reservoir of up to 5 changed passages per file (original and scrubbed) is kept in `/state` for the Samples page.
+- **Misses.** Reported misses are logged in `/state`. The term goes to `config/review-additions.yaml`, which `load_config` merges on every run. A deny-list change changes the config hash, so everything is re-scrubbed on the next run. On very large inputs, plan re-runs accordingly.
+- **Manifest** (`/output/manifest.json` + `.csv`). Per source (Email, Slack, Spreadsheets/CRM, Documents, Images, DICOM, transcripts) and per top-level folder: files exported, input and output bytes, records with their unit, messages, year range, and how many were held or not exported.
+- **Audit report** (`/output/reports/deidentification-report.html` + `.pdf`, the PDF rendered with PyMuPDF `Story`). Sections:
+  - method
+  - the 18-identifier checklist, with how each is handled and the counts
+  - verification and residual-risk results by kind, type and rule
+  - files still pending
+  - the human-review decision log (reviewer, time, note)
+  - counts of reported misses and deny-list terms
+  - not-exported items
+  - manifest
+  - configuration and hash
+  - component versions (including Tesseract and the YuNet model hash)
+  - limits and an attestation block
+
+  It is regenerated after every run and every decision. A test checks that it holds no identifiers and no snippets.
+
 **License note.** PyMuPDF is AGPL-3.0, or a paid Artifex commercial license. Shipping this tool to sellers with PyMuPDF inside means either releasing the tool's source under AGPL terms or buying a commercial license. If neither is acceptable, `pypdf` (BSD) plus `pdfplumber` (MIT) can replace it, but true redaction then has to be hand-built. Decide before distributing.
 
 ## Tests and recall
 
-`scripts/test.sh` runs 182 tests in the network-less container (one is skipped unless the image includes Whisper). They include `tests/test_formats_identifiers.py`, which pushes every one of the 18-identifier cases through every format (txt, eml, csv, xlsx, json, Slack, docx with runs split mid-identifier, pdf).
+`scripts/test.sh` runs 211 tests in the network-less container (one is skipped unless the image includes Whisper). They include `tests/test_formats_identifiers.py`, which pushes every one of the 18-identifier cases through every format (txt, eml, csv, xlsx, json, Slack, docx with runs split mid-identifier, pdf).
 
 Recall on synthetic free text (N=200 per type, `tests/test_recall.py`):
 

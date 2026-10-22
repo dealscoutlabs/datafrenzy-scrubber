@@ -104,10 +104,10 @@ def test_end_to_end(workspace, synth, run_pipeline):
 def test_rerun_is_idempotent(workspace, synth, run_pipeline):
     _build_input(workspace, synth)
     run_pipeline(workspace)
-    before = {p: d for p, d in _all_output_bytes(workspace) if "reports" not in p}
+    before = {p: d for p, d in _all_output_bytes(workspace) if "/scrubbed/" in p}
     msgs = []
     run_pipeline(workspace, messages=msgs)
-    after = {p: d for p, d in _all_output_bytes(workspace) if "reports" not in p}
+    after = {p: d for p, d in _all_output_bytes(workspace) if "/scrubbed/" in p}
     assert before == after
     assert not any(m.startswith("Scrubbing") for m in msgs)
 

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Deny list{% endblock %}
+{% block body %}
+<h1>Deny list additions</h1>
+<p class="muted">Terms added on this screen. They are always removed, wherever they appear. Your own <code>config/scrubber.yaml</code> deny list is applied as well. After a change, press <b>Re-run</b> on the home page.</p>
+{% if additions %}
+<div class="wrap"><table><tr><th>Type</th><th>Term</th><th></th></tr>
+{% for etype, terms in additions.items() %}{% for t in terms %}
+<tr><td>{{ etype }}</td><td>{{ t }}</td><td>
+<form method="post" action="/deny-list/remove" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}">
+<input type="hidden" name="etype" value="{{ etype }}"><input type="hidden" name="term" value="{{ t }}">
+<button type="submit" class="secondary">Remove</button></form></td></tr>
+{% endfor %}{% endfor %}
+</table></div>
+{% else %}<div class="card">No terms added yet.</div>{% endif %}
+<h2>Add a term</h2>
+{% set fid = None %}{% set back_to = '/deny-list' %}
+{% include "miss_form.html" %}
+{% endblock %}

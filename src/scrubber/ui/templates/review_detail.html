@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Review file{% endblock %}
+{% block body %}
+<h1>{{ f.rel }}</h1>
+<p class="muted">Exported as <b>{{ f.out_rel }}</b> · status <span class="pill {{ f.status }}">{{ f.status }}</span></p>
+
+<h2>What the double-check found</h2>
+{% if details %}
+<div class="wrap"><table><tr><th>Kind</th><th>Finding</th><th>In the scrubbed file</th></tr>
+{% for d in details %}<tr><td class="small">{{ d.kind }}</td><td class="small">{{ d.message }}</td><td class="small">{{ d.snippet|mark }}</td></tr>{% endfor %}
+</table></div>
+{% else %}<p class="muted">No details recorded.</p>{% endif %}
+
+{% if preview %}
+<h2>Before and after</h2>
+<div class="pair">
+  <div><div class="label">Original (this computer only)</div><img class="preview" src="/preview/{{ fid }}/original.png" alt="Original"></div>
+  <div><div class="label">Scrubbed</div><img class="preview" src="/preview/{{ fid }}/scrubbed.png" alt="Scrubbed"></div>
+</div>
+{% endif %}
+{% if samples %}
+<h2>Sample text from this file</h2>
+{% for s in samples %}
+<div class="pair card">
+  <div><div class="label">Original (this computer only)</div><pre>{{ s.original }}</pre></div>
+  <div><div class="label">Scrubbed</div><pre>{{ s.scrubbed }}</pre></div>
+</div>
+{% endfor %}
+{% endif %}
+
+{% if rv and rv.status == 'pending' %}
+<h2>Decision</h2>
+<div class="card">
+<form method="post" action="/review/{{ fid }}/approve">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <p><label>Your name <input type="text" name="reviewer" value="{{ reviewer }}" required></label></p>
+  <p><label>Note (optional)<br><textarea name="note" placeholder="What you checked"></textarea></label></p>
+  <div class="inline" style="display:flex;gap:8px;flex-wrap:wrap">
+    <button type="submit">Approve and export</button>
+    <button type="submit" class="danger" formaction="/review/{{ fid }}/reject">Reject (never export)</button>
+  </div>
+</form>
+</div>
+{% endif %}
+
+<h2>Report a missed identifier</h2>
+{% include "miss_form.html" %}
+{% endblock %}

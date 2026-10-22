@@ -21,3 +21,8 @@ pytesseract==0.3.13
 pydicom==3.0.2
 python-gdcm==3.2.6
 pillow-heif==1.8.0
+# Phase 4: local review screen and reports
+fastapi==0.142.2
+uvicorn==0.54.0
+jinja2==3.1.6
+python-multipart==0.0.32

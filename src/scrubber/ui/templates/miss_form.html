@@ -1,0 +1,9 @@
+<form method="post" action="/misses" class="inline card">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <input type="hidden" name="fid" value="{{ fid or '' }}">
+  <input type="hidden" name="back_to" value="{{ back_to or ('/review/' ~ fid if fid else '/samples') }}">
+  <input type="text" name="term" placeholder="Text that should have been removed" required>
+  <select name="etype">{% for t in deny_types %}<option value="{{ t }}" {{ 'selected' if t == 'PERSON' else '' }}>{{ t }}</option>{% endfor %}</select>
+  <input type="text" name="reviewer" value="{{ reviewer }}" placeholder="Your name" required>
+  <button type="submit" class="secondary">Add to deny list</button>
+</form>
