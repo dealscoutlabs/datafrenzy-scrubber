@@ -75,12 +75,7 @@ class TextScrubber:
         results = [RecognizerResult(f.etype, f.start, f.end, f.score) for f in findings]
         new = self.anonymizer.anonymize(text=text, analyzer_results=results, operators=self.operators).text
         if tally is not None:
-            for f in findings:
-                tally.counts[f.etype] += 1
-                if f.etype in ("DATE", "DATE_BIRTH"):
-                    y = self.gen.year_of(f.text)
-                    if y:
-                        tally.years.add(y)
+            self._count(findings, tally)
         return Scrubbed(new, findings)
 
     def scrub(self, text: str, tally: Tally | None = None, detect_text: str | None = None) -> Scrubbed:
@@ -97,6 +92,66 @@ class TextScrubber:
         all_findings = self.detector.detect_many(texts)
         return [self._apply(t, fs, tally) for t, fs in zip(texts, all_findings)]
 
+    def scrub_joined(self, texts: list[str], tally: Tally | None = None, max_chars: int = 20000) -> list[Scrubbed]:
+        """Scrub short strings read together (joined by blank lines), so the language model
+        sees the same context the verification pass sees. Each result belongs to its own string."""
+        from dataclasses import replace as _replace
+
+        results: list[Scrubbed | None] = [None] * len(texts)
+        group: list[int] = []
+        size = 0
+
+        def run(g: list[int]) -> None:
+            bounds, pos = [], 0
+            for i in g:
+                bounds.append((pos, pos + len(texts[i])))
+                pos += len(texts[i]) + 2
+            joined = "\n\n".join(texts[i] for i in g)
+            per: dict[int, list[Finding]] = {i: [] for i in g}
+            for f in self.detector.detect(joined):
+                for i, (a, b) in zip(g, bounds):
+                    if a <= f.start < b:
+                        end = min(f.end, b)
+                        per[i].append(_replace(f, start=f.start - a, end=end - a, text=joined[f.start:end]))
+                        break
+            for i in g:
+                results[i] = self._apply(texts[i], per[i], tally)
+
+        for i, t in enumerate(texts):
+            if not t or not t.strip():
+                results[i] = Scrubbed(t, [])
+                continue
+            if group and size + len(t) > max_chars:
+                run(group)
+                group, size = [], 0
+            group.append(i)
+            size += len(t) + 2
+        if group:
+            run(group)
+        return results  # type: ignore[return-value]
+
+    def plan_many(self, texts: list[str], tally: Tally | None = None) -> list[list[tuple[int, int, str]]]:
+        """Like scrub_many, but returns (start, end, replacement) spans instead of new text.
+        Used where text is split over formatted pieces (Word runs, PDF words)."""
+        out = []
+        for text, findings in zip(texts, self.detector.detect_many(texts)):
+            spans = []
+            for f in findings:
+                f.text = text[f.start:f.end]
+                spans.append((f.start, f.end, self.replacement(f.etype, f.text)))
+            if tally is not None:
+                self._count(findings, tally)
+            out.append(spans)
+        return out
+
+    def _count(self, findings: list[Finding], tally: Tally) -> None:
+        for f in findings:
+            tally.counts[f.etype] += 1
+            if f.etype in ("DATE", "DATE_BIRTH"):
+                y = self.gen.year_of(f.text)
+                if y:
+                    tally.years.add(y)
+
     def scrub_name(self, name: str, tally: Tally | None = None) -> str:
         """Scrub a file or folder name, keeping its extension."""
         stem, dot, ext = name.rpartition(".") if "." in name.strip(".") else (name, "", "")
@@ -108,3 +163,33 @@ class TextScrubber:
 
     def years_in(self, text: str) -> set[int]:
         return {int(y) for y in YEAR4_RE.findall(text)}
+
+
+def apply_spans_to_segments(segments: list[str], spans: list[tuple[int, int, str]]) -> list[str]:
+    """Apply replacements found in "".join(segments) back onto the segments.
+
+    A replacement goes into the segment where the identifier starts (so it takes
+    that run's formatting); the rest of the identifier is removed from later
+    segments. Unchanged text stays in its own segment.
+    """
+    if not spans:
+        return list(segments)
+    owner: list[int] = []
+    for i, seg in enumerate(segments):
+        owner.extend([i] * len(seg))
+    text = "".join(segments)
+    out = [""] * len(segments)
+    pos = 0
+    for start, end, repl in sorted(spans):
+        if start < pos:
+            continue
+        for k in range(pos, start):
+            out[owner[k]] += text[k]
+        if start < len(owner):
+            out[owner[start]] += repl
+        elif segments:
+            out[-1] += repl
+        pos = end
+    for k in range(pos, len(text)):
+        out[owner[k]] += text[k]
+    return out

@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import csv
 import email.utils
-import io
+import json
 import re
+import zipfile
 from email import policy
 from email.parser import BytesHeaderParser
 from pathlib import Path
@@ -89,6 +90,15 @@ def harvest_file(kind: str, path: Path) -> list[tuple[str, str, str, str]]:
             reader = csv.reader(f, delimiter=delim)
             headers = next(reader, [])
             rows += _harvest_table(headers, reader, source)
+    elif kind == "json":
+        if path.stat().st_size <= 256 << 20:
+            rows += _harvest_json(json.loads(path.read_bytes().decode("utf-8-sig", errors="replace")), source)
+    elif kind == "zip":
+        with zipfile.ZipFile(path) as z:
+            for info in z.infolist():
+                name = info.filename.rsplit("/", 1)[-1]
+                if name in ("users.json", "org_users.json") and info.file_size <= 256 << 20:
+                    rows += _harvest_json(json.loads(z.read(info).decode("utf-8-sig", errors="replace")), "slack")
     elif kind == "xlsx":
         from openpyxl import load_workbook
         wb = load_workbook(path, read_only=True, data_only=True)
@@ -108,6 +118,27 @@ def harvest_file(kind: str, path: Path) -> list[tuple[str, str, str, str]]:
         finally:
             wb.close()
     return rows
+
+
+def _harvest_json(obj, source: str) -> list:
+    """Values under person-name keys anywhere in a JSON document (Slack users.json profiles...)."""
+    from ..formats.json_ import PERSON_KEYS
+    out: list = []
+    stack = [obj]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            first, last = node.get("first_name"), node.get("last_name")
+            if isinstance(first, str) and isinstance(last, str) and first.strip() and last.strip():
+                out += _person_rows(f"{first.strip()} {last.strip()}", source)
+            for k, v in node.items():
+                if isinstance(v, str) and k.lower() in PERSON_KEYS and k.lower() not in ("first_name", "last_name"):
+                    out += _person_rows(v, source)
+                elif isinstance(v, (dict, list)):
+                    stack.append(v)
+        elif isinstance(node, list):
+            stack.extend(node)
+    return out
 
 
 def _harvest_table(headers, rows_iter, source) -> list:

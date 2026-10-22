@@ -69,6 +69,15 @@ CITY_STATE_ZIP = (
     rf"(?P<city>[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){{0,3}}),\s*(?P<state>{STATE_ABBR}|{STATE_NAMES})"
     rf"(?:[ \t]+(?P<zip>\d{{5}}(?:-\d{{4}})?))?(?![\w-])"
 )
+# Town names: "Port Kevinberg", "Lake Charles", "North Platte"; "Clarksville" after "in/at/visiting".
+PLACE_PREFIX = (r"\b(?:New|North|South|East|West|Port|Lake|Fort|Ft\.|Mount|Mt\.|Saint|St\.|San|Santa|Los|Las|"
+                r"Glen|Grand|Little|Big|Palm|Cape|Point|Upper|Lower)[ \t]+[A-Z][a-z]{2,}"
+                r"(?:[ \t]+(?:City|Springs|Falls|Beach|Heights|Hills|Park|Valley|Village|Junction|Center))?\b")
+PLACE_SUFFIX = (r"(?i:\b(?:in|at|from|to|near|visiting|outside|around|toward|towards|via|lives|living|moved|"
+                r"based|located|resident|residing)[ \t]+(?:in[ \t]+|of[ \t]+)?)"
+                r"(?P<value>[A-Z][a-z]+(?:ville|burgh|burg|borough|town|ton|field|mouth|port|view|side|haven|berg|"
+                r"chester|shire|stad|bury|ford|land|wood|dale|mont|ridge|brook|crest|furt))\b")
+
 LABELED_ZIP = r"(?i:\b(?:zip|zip ?code|postal(?: ?code)?|post ?code)\b)\s*[:#]?\s*(?P<value>\d{5}(?:-\d{4})?)(?!\d)"
 STATE_ZIP = rf"\b(?:{STATE_ABBR})\s+(?P<value>\d{{5}}(?:-\d{{4}})?)(?![\d-])"
 
@@ -144,7 +153,7 @@ thank regards best sincerely notes note the and of at on in for with by via per 
 drafts draft archive archives outbox trash junk spam folder folders calendar contacts tasks deleted items
 chart record records medical number no num serial device vin plate ip url website web profile handle
 follow call called contact contacts emergency spouse husband wife son daughter mother father mom dad
-sons brothers bros associates partners group inc llc ltd co corp corporation company plc pc pllc lp llp
+see sons brothers bros associates partners group inc llc ltd co corp corporation company plc pc pllc lp llp
 """.split())
 
 # Ordinary lowercase words that also appear in the Census name lists; never

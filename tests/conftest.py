@@ -70,3 +70,40 @@ def run_pipeline(cfg):
         summary = runner.run()
         return runner, summary
     return _run
+
+
+def person_secrets(p):
+    """Strings from a synthetic person that must never survive scrubbing."""
+    return {"names": [p.first, p.last] + p.relative.split(),
+            "exact": [p.email, p.ssn, p.mrn, p.member_id, p.npi, p.phone, p.fax, p.street, p.username, p.claim]}
+
+
+def assert_no_secrets(text: str, people, where=""):
+    import re as _re
+    digits = _re.sub(r"\D", "", text)
+    for p in people:
+        sec = person_secrets(p)
+        for w in sec["names"]:
+            assert not _re.search(rf"(?<![A-Za-z]){_re.escape(w)}(?![a-z])", text), f"name {w!r} leaked {where}"
+        for v in sec["exact"]:
+            assert v not in text, f"{v!r} leaked {where}"
+        for ph in (p.phone, p.fax):
+            assert _re.sub(r"\D", "", ph)[-7:] not in digits, f"phone {ph!r} leaked {where}"
+
+
+@pytest.fixture
+def harvested(cfg, store):
+    """A scrubber that knows these people's names, as the pipeline's harvest step would."""
+    from scrubber.detect.harvest import _person_rows, known_entries
+
+    def make(people):
+        rows = []
+        for p in people:
+            for r in _person_rows(p.name, "test") + _person_rows(p.relative, "test"):
+                rows.append({"norm": r[0], "etype": r[1], "surface": r[2]})
+        entries, full = known_entries(rows, set())
+        pseudo = Pseudonymizer(b"\x03" * 32, store, cfg)
+        pseudo.set_person_aliases(full)
+        sc = TextScrubber(Detector(cfg, entries), pseudo, Generalizer(REFERENCE_YEAR, load_zip3_restricted()))
+        return Context(cfg=cfg, scrubber=sc, store=store, rel="test/doc", out_rel="test/doc")
+    return make

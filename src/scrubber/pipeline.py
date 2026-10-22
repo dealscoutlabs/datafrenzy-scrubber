@@ -23,7 +23,7 @@ from . import __version__
 from .config import config_hash, load_zip3_restricted
 from .detect.engine import Detector
 from .detect.harvest import harvest_file, known_entries
-from .formats import email_, mbox, tabular, text
+from .formats import archive, docx_, email_, json_, mbox, pdf, tabular, text
 from .formats.base import Context, Quarantined
 from .identifiers import SAFE_HARBOR, ENTITY_TO_CATEGORY
 from .keys import load_or_create_key
@@ -35,17 +35,18 @@ from .transform.scrub import Tally, TextScrubber
 log = logging.getLogger("scrubber")
 
 SUPPORTED = {".eml": "eml", ".mbox": "mbox", ".mbx": "mbox", ".pst": "pst", ".ost": "pst", ".csv": "csv",
-             ".tsv": "csv", ".xlsx": "xlsx", ".txt": "text", ".text": "text", ".md": "text", ".log": "text"}
+             ".tsv": "csv", ".xlsx": "xlsx", ".txt": "text", ".text": "text", ".md": "text", ".log": "text",
+             ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl", ".zip": "zip", ".docx": "docx", ".pdf": "pdf"}
+HANDLED = {"eml", "mbox", "csv", "xlsx", "text", "json", "jsonl", "zip", "docx", "pdf"}
 LATER_PHASE = {
-    ".json": "Slack/JSON exports are supported in Phase 2", ".zip": "Slack export zips are supported in Phase 2",
-    ".docx": "Word documents are supported in Phase 2", ".pdf": "PDFs are supported in Phase 2 (text) / 3 (scanned)",
     ".dcm": "DICOM is supported in Phase 3", ".dicom": "DICOM is supported in Phase 3",
     **{e: "images are supported in Phase 3 (OCR redaction + face blurring)" for e in email_.IMAGE_EXT},
 }
 MEDIA_REASON = "audio/video contains voiceprints (biometric identifier) - never exported"
 UNSUPPORTED = {
     ".xls": "old Excel format - save as .xlsx and re-run", ".xlsm": "Excel file with macros - save as .xlsx and re-run",
-    ".doc": "old Word format - save as .docx (Phase 2)", ".rtf": "RTF is not supported - save as .docx (Phase 2)",
+    ".doc": "old Word format - save as .docx and re-run", ".rtf": "RTF is not supported - save as .docx and re-run",
+    ".docm": "Word file with macros - save as .docx and re-run",
     ".msg": "Outlook .msg - export the folder to .mbox or .pst instead (see README)",
 }
 SYSTEM_FILES = {".ds_store", "thumbs.db", "desktop.ini", ".localized"}
@@ -144,6 +145,17 @@ def run_job(job: tuple[str, int]) -> tuple[str, int, str]:
                 tabular.process_xlsx(src, dst, ctx)
             elif f["kind"] == "text":
                 text.process_text(src, dst, ctx)
+            elif f["kind"] in ("json", "jsonl"):
+                limit = int(_W["cfg"]["json"]["max_mb"]) * 1024 * 1024
+                if f["kind"] == "json" and src.stat().st_size > limit:
+                    raise Quarantined(f"JSON file larger than {limit >> 20} MB - export it as JSON Lines (.jsonl)")
+                json_.process_json(src, dst, ctx, jsonl=(f["kind"] == "jsonl"))
+            elif f["kind"] == "zip":
+                archive.process_zip(src, dst, ctx)
+            elif f["kind"] == "docx":
+                docx_.process_docx(src, dst, ctx)
+            elif f["kind"] == "pdf":
+                pdf.process_pdf(src, dst, ctx)
             else:
                 raise Quarantined(f"no handler for {f['kind']}")
         store.finish_shard(rel, idx, "done", counts=ctx.tally.to_dict(), error=None)
@@ -240,7 +252,8 @@ class Runner:
             self.store.update_file(row["rel"], status="converted", reason="converted to mbox; see derived files")
 
     def harvest(self) -> None:
-        todo = [r for r in self.store.files("pending") if r["kind"] in ("eml", "mbox", "csv", "xlsx") and not r["harvested"]]
+        todo = [r for r in self.store.files("pending")
+                if r["kind"] in ("eml", "mbox", "csv", "xlsx", "zip", "json") and not r["harvested"]]
         if todo:
             self.echo(f"Collecting names from email headers and name columns ({len(todo):,} files) ...")
         for row in todo:
@@ -284,7 +297,7 @@ class Runner:
         jobs = []
         shard_bytes = int(self.cfg["mbox"]["shard_mb"]) * 1024 * 1024
         for r in self.store.files("pending"):
-            if r["kind"] not in ("eml", "mbox", "csv", "xlsx", "text"):
+            if r["kind"] not in HANDLED:
                 continue
             released = self.paths.released / r["out_rel"]
             if released.exists():

@@ -29,7 +29,15 @@ def _build_input(paths, synth):
     box.close()
     (paths.input / "voicemail.wav").write_bytes(b"RIFF" + bytes(100))
     (paths.input / "Patients" / "badge.jpg").write_bytes(b"\xff\xd8\xff" + bytes(100))
-    (paths.input / "report.docx").write_bytes(b"PK" + bytes(100))
+    from fixtures.synth_docs import SlackWorkspace, docx_bytes, pdf_bytes, scanned_pdf_bytes
+    docs = paths.input / "Documents"
+    docs.mkdir()
+    (docs / f"{c.last} referral.docx").write_bytes(docx_bytes(synth, [c, a, b]))
+    (docs / "summary.pdf").write_bytes(pdf_bytes(synth, [b, c, a], csv_text=synth.csv_text([a])))
+    (docs / "scan.pdf").write_bytes(scanned_pdf_bytes())
+    (docs / "export.json").write_text(json.dumps([{"patient_name": p.name, "email": p.email, "phone": p.phone,
+                                                    "note": f"Seen {p.visit.isoformat()} for {p.first}"} for p in people]))
+    (paths.input / "slack-export.zip").write_bytes(SlackWorkspace(synth, people[:5]).zip_bytes(days=2)[0])
     (paths.input / "blob.bin").write_bytes(os.urandom(64))
     (paths.input / ".DS_Store").write_bytes(bytes(16))
     return people
@@ -53,10 +61,12 @@ def test_end_to_end(workspace, synth, run_pipeline):
     runner, summary = run_pipeline(workspace, workers=2)
 
     released = sorted(p.relative_to(workspace.released).as_posix() for p in workspace.released.rglob("*") if p.is_file())
-    assert len(released) == 5, (released, summary)
+    assert len(released) == 9, (released, summary)
     assert any(re.fullmatch(r"Patients/PERSON_\d{4}/visit 20\d\d\.eml", r) for r in released), released
     assert "CRM/contacts.csv" in released and "CRM/contacts.xlsx" in released and "Mail/Inbox" in released
-    assert not any(r.endswith((".wav", ".jpg", ".docx", ".bin", ".DS_Store")) for r in released)
+    assert {"Documents/summary.pdf", "Documents/export.json", "slack-export.zip"} <= set(released)
+    assert any(re.fullmatch(r"Documents/PERSON_\d{4} referral\.docx", r) for r in released), released
+    assert not any(r.endswith((".wav", ".jpg", ".bin", ".DS_Store", "scan.pdf")) for r in released)
 
     # no identifier from the input survives anywhere in /output (data, file names, reports)
     for path, data in _all_output_bytes(workspace):
@@ -75,13 +85,19 @@ def test_end_to_end(workspace, synth, run_pipeline):
     reasons = {q["item"]: q["reason"] for q in s["quarantined"]}
     assert any("voiceprint" in r for r in reasons.values())
     assert any("Phase 3" in r for r in reasons.values())
-    assert any("Phase 2" in r for r in reasons.values())
+    assert any("scanned PDF" in r for r in reasons.values())
     assert any("unknown" in r for r in reasons.values())
-    assert s["files"].get("done") == 5 and not s["files"].get("review")
+    assert s["files"].get("done") == 9 and not s["files"].get("review"), s["review"]
     assert s["date_range_years"] and 1900 < s["date_range_years"][0] <= s["date_range_years"][1] <= 2026
 
     # every exported file opens in its normal reader
     load_workbook(workspace.released / "CRM" / "contacts.xlsx")
+    import docx
+    import pymupdf
+    import zipfile
+    docx.Document(next(workspace.released.glob("Documents/*.docx")))
+    assert pymupdf.open(workspace.released / "Documents" / "summary.pdf").page_count == 2
+    assert zipfile.ZipFile(workspace.released / "slack-export.zip").testzip() is None
 
 
 def test_rerun_is_idempotent(workspace, synth, run_pipeline):

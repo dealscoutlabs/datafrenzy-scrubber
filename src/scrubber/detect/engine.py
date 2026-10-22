@@ -37,7 +37,8 @@ KEEP_BUILTINS = {"CreditCardRecognizer", "UsItinRecognizer", "CryptoRecognizer",
 
 # Our own output: never re-detected (keeps re-runs and verification clean).
 ARTIFACT_RE = re.compile(
-    r"[a-z]+_\d{4,}@[a-z0-9.-]*invalid\b|<?[0-9a-f]{20}@[a-z0-9.-]*invalid>?|" + TOKEN_RE.pattern
+    r"[a-z]+_\d{4,}@[a-z0-9.-]*invalid\b|<?[0-9a-f]{20}@[a-z0-9.-]*invalid>?|https?://scrubbed\.invalid/\w*|"
+    r"(?-i:<(?:[@#]|!subteam\^)[UWBCGDTEFSARLKQ]Z[0-9A-F]{10}(?=[>|]))|" + TOKEN_RE.pattern
     + r"|\[(?:DATE|ZIP)\]|(?<!\d)\d{3}XX\b|(?<!\d)90\+",
     re.IGNORECASE)
 
@@ -101,6 +102,7 @@ class Detector:
 
         first = load_name_list("census_first_names.txt")
         last = load_name_list("census_surnames.txt")
+        self.first_names, self.last_names = first, last
         for rec in build_custom_recognizers(cfg, first, last):
             registry.add_recognizer(rec)
 
@@ -138,6 +140,17 @@ class Detector:
         return out  # type: ignore[return-value]
 
     # ---- post-processing
+    def _meaningful(self, span: str) -> bool:
+        """Does an NER span contain a word that could be a name (not a label, token or number)?
+        Next to one of our tokens, the leftover word must be a known first/last name: the model
+        often stretches a span from a token into the following word ("PERSON_0008 Footnote")."""
+        rest = ARTIFACT_RE.sub(" ", span)
+        words = [w.strip(".'") for w in re.findall(r"[A-Za-z][A-Za-z'.-]*", rest)]
+        words = [w for w in words if w.lower() not in P.LABEL_WORDS and not (w.isupper() and len(w) <= 3)]
+        if rest == span:
+            return bool(words)
+        return any(w.upper() in self.first_names or w.upper() in self.last_names for w in words)
+
     def _threshold(self, etype: str) -> float:
         return float(self.thresholds.get(etype, self.thresholds["default"]))
 
@@ -157,6 +170,15 @@ class Detector:
                     span = text[start:end]
                 else:
                     break
+            if source == "SpacyRecognizer" and "\n" in span.strip():
+                # NER spans run across line breaks into the next line's label ("Jeffery Hernandez\nMRN")
+                head = span.split("\n", 1)[0]
+                if head.strip() and self._meaningful(head):
+                    end = start + len(head.rstrip())
+                else:
+                    tail = span.rsplit("\n", 1)[1]
+                    start = end - len(tail)
+                span = text[start:end]
             if span.endswith("'s") and etype in ("PERSON", "ORGANIZATION"):
                 end -= 2
                 span = text[start:end]
@@ -173,7 +195,7 @@ class Detector:
                 continue
             found.append(Finding(start, end, etype, r.score, span, source))
         found = [f for f in found if not _overlaps_artifact(text, f)
-                 and not (f.source == "SpacyRecognizer" and f.etype in NAMEISH and not _meaningful(f.text))]
+                 and not (f.source == "SpacyRecognizer" and f.etype in NAMEISH and not self._meaningful(f.text))]
         found = _resolve(found)
         for f in found:
             f.start += offset
@@ -264,13 +286,6 @@ def _overlaps_artifact(text: str, f: Finding) -> bool:
             if f.etype in ("OTHER_ID", "DATE", "ORGANIZATION", "LOCATION"):
                 return True
     return False
-
-
-def _meaningful(span: str) -> bool:
-    """Does an NER span contain a word that could be a name (not a label, token or number)?"""
-    rest = ARTIFACT_RE.sub(" ", span)
-    words = re.findall(r"[A-Za-z][A-Za-z'.-]*", rest)
-    return any(w.lower().strip(".'") not in P.LABEL_WORDS and not (w.isupper() and len(w) <= 3) for w in words)
 
 
 def _resolve(found: list[Finding]) -> list[Finding]:

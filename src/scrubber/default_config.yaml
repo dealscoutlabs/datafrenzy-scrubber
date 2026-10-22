@@ -187,6 +187,10 @@ mbox:
   shard_mb: 256
   checkpoint_every: 200
 
+json:
+  # Plain .json files are loaded whole; larger ones should be JSON Lines.
+  max_mb: 1024
+
 tabular:
   sample_rows: 200
   # Unknown column -> classified by content when this share of sampled

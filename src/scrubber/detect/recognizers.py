@@ -113,7 +113,7 @@ class NameGazetteerRecognizer(EntityRecognizer):
         self.first = first_names
         self.last = last_names
         self.honorific = re.compile(
-            rf"\b{P.HONORIFIC}\.?\s+(?P<value>[A-Z][a-zA-Z'-]+(?:\s+[A-Z]\.?)?(?:\s+[A-Z][a-zA-Z'-]+){{0,2}})")
+            rf"\b{P.HONORIFIC}\.?[ \t]+(?P<value>[A-Z][a-zA-Z'-]+(?:[ \t]+[A-Z]\.?)?(?:[ \t]+[A-Z][a-zA-Z'-]+){{0,2}})")
         self.greeting = re.compile(rf"{P.GREETING}(?P<value>[A-Z][a-z'-]+(?:[ \t]+[A-Z][a-z'-]+)?)\b", re.M)
         self.signature = re.compile(r"^[ \t]*[-~]*[ \t]*(?P<value>[A-Z][a-z'-]+(?:[ \t]+[A-Z][a-z'-]+)?)[ \t,.]*$", re.M)
         super().__init__(supported_entities=["PERSON"], name="name_gazetteer", supported_language="en")
@@ -242,6 +242,8 @@ def build_custom_recognizers(cfg: dict, first_names, last_names) -> list[EntityR
         RegexRecognizer("long_number_id", "OTHER_ID", [P.LONG_DIGITS], 0.45),
         RegexRecognizer("street_address", "STREET_ADDRESS", [P.STREET_ADDRESS, P.PO_BOX, P.MILITARY_ADDRESS], 0.8),
         RegexRecognizer("city_state", "LOCATION", [P.CITY_STATE_ZIP], 0.75, group="city"),
+        RegexRecognizer("town_prefix", "LOCATION", [P.PLACE_PREFIX], 0.65),
+        RegexRecognizer("town_suffix", "LOCATION", [P.PLACE_SUFFIX], 0.65, group="value"),
         RegexRecognizer("zip_city_state", "ZIP_CODE", [P.CITY_STATE_ZIP], 0.9, group="zip"),
         RegexRecognizer("zip_labeled", "ZIP_CODE", [P.LABELED_ZIP, P.STATE_ZIP], 0.9, group="value"),
         RegexRecognizer("age_over_89", "AGE_OVER_89", P.AGE_PATTERNS, 0.0, group="value",

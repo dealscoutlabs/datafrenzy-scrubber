@@ -198,7 +198,7 @@ def set_bytes(part: Message, data: bytes, text_part: bool = False) -> None:
 def scrub_html(html: str, ctx: Context) -> str:
     soup = BeautifulSoup(html, "html.parser")
     strings = [s for s in soup.find_all(string=True) if s.strip()]
-    results = ctx.scrubber.scrub_many([str(s) for s in strings], ctx.tally)
+    results = ctx.scrubber.scrub_joined([str(s) for s in strings], ctx.tally)
     for s, r in zip(strings, results):
         if r.text != str(s):
             s.replace_with(Comment(r.text) if isinstance(s, Comment) else type(s)(r.text))
@@ -267,25 +267,13 @@ def scrub_leaf(part: Message, ctx: Context, item: str, depth: int, headers: bool
 
 
 def _scrub_leaf_body(part: Message, ctx: Context, item: str, depth: int, ctype: str, ext: str) -> Message:
-    from .tabular import scrub_csv_bytes, scrub_xlsx_bytes
+    from .dispatch import kind_of, scrub_bytes
 
     try:
-        if ext == ".eml" or ctype in ("application/eml",):
-            data = part.get_payload(decode=True) or b""
-            sep = detect_linesep(data)
-            inner = parse(data, sep)
-            scrub_message(inner, ctx, item + "/eml", depth + 1)
-            set_bytes(part, serialize(inner, sep))
-        elif ext in (".csv", ".tsv") or ctype in ("text/csv", "text/tab-separated-values"):
-            data = part.get_payload(decode=True) or b""
-            set_bytes(part, scrub_csv_bytes(data, ctx, item, tsv=(ext == ".tsv" or "tab" in ctype)))
-        elif ext == ".xlsx" or ctype == XLSX_MIME:
-            data = part.get_payload(decode=True) or b""
-            set_bytes(part, scrub_xlsx_bytes(data, ctx, item))
-        elif ctype == "text/html":
+        if ctype == "text/html":
             text, cs = get_text(part)
             set_text(part, scrub_html(text, ctx), cs)
-        elif part.get_content_maintype() == "text":
+        elif part.get_content_maintype() == "text" and kind_of(part.get_filename() or "", ctype) in (None, "text"):
             text, cs = get_text(part)
             set_text(part, ctx.scrubber.scrub(text, ctx.tally).text, cs)
         elif ctype in ("application/ms-tnef",) or ext == ".dat":
@@ -295,9 +283,16 @@ def _scrub_leaf_body(part: Message, ctx: Context, item: str, depth: int, ctype: 
         elif part.get_content_maintype() == "image" or ext in IMAGE_EXT:
             return placeholder(part, ctx, item, "image attachment (face/OCR redaction arrives in Phase 3)")
         else:
-            return placeholder(part, ctx, item, f"attachment type {ext or ctype} is not supported yet")
-    except Exception as exc:  # unreadable/encrypted attachment
-        return placeholder(part, ctx, item, f"attachment could not be opened ({type(exc).__name__})")
+            name = part.get_filename() or ""
+            if ext == ".eml" or ctype == "application/eml":
+                name = name or "attached.eml"
+            out = scrub_bytes(name, part.get_payload(decode=True) or b"", ctx, item, ctype=ctype, depth=depth + 1)
+            if out is None:
+                return placeholder(part, ctx, item, f"attachment type {ext or ctype} is not supported")
+            set_bytes(part, out)
+    except Exception as exc:  # unreadable/encrypted/scanned attachment
+        reason = getattr(exc, "reason", None) or f"attachment could not be opened ({type(exc).__name__})"
+        return placeholder(part, ctx, item, reason)
     return part
 
 

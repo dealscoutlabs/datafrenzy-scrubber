@@ -20,8 +20,8 @@ SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "md", "do", "phd", "rn", "np", "pa", 
             "lpn", "cna", "pharmd", "facs", "faap", "dvm", "lcsw", "pt", "dpt", "od", "cpa"}
 ORG_SUFFIXES = {"inc", "llc", "ltd", "corp", "corporation", "co", "company", "plc", "lp", "llp", "pc", "pllc", "the"}
 
-TOKEN_RE = re.compile(r"\b(?:%s)_\d{4,}\b" % "|".join(sorted(set(TOKEN_PREFIX.values()), key=len, reverse=True)),
-                      re.IGNORECASE)
+TOKEN_RE = re.compile(r"(?<![A-Za-z])(?:%s)_\d{4,}(?!\d)" % "|".join(sorted(set(TOKEN_PREFIX.values()), key=len,
+                                                                                 reverse=True)), re.IGNORECASE)
 
 
 def _fold(text: str) -> str:

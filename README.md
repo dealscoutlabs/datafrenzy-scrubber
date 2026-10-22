@@ -7,7 +7,7 @@ This program removes patient and personal information from your business files *
 - **The same person always gets the same stand-in.** "Maria Gonzalez" is `PERSON_0412` in every email and spreadsheet, so conversations still make sense.
 - It follows the **HIPAA Safe Harbor** method, which covers all 18 types of identifiers.
 
-> **Status: Phase 1.** Works today: email (`.eml`, `.mbox`, Outlook `.pst`), spreadsheets (`.csv`, `.xlsx`) and plain text (`.txt`). Coming later: Slack exports, Word and PDF files (Phase 2); photos, scanned documents and X-rays (Phase 3); the review web page and the full audit report (Phase 4). Files the scrubber can't handle yet are **never exported**. They are listed in the report instead.
+> **Status: Phase 2.** Works today: email (`.eml`, `.mbox`, Outlook `.pst`), spreadsheets (`.csv`, `.xlsx`), Slack workspace exports (`.zip`), Word documents (`.docx`), PDFs that contain selectable text, JSON files and plain text. Coming later: photos, scanned documents and X-rays (Phase 3), and the review web page and full audit report (Phase 4). Files the scrubber can't handle yet are **never exported**. They are listed in the report instead.
 
 ---
 
@@ -35,8 +35,13 @@ datafrenzy-scrubber/
   input/
     Email/            <- .mbox / .eml / .pst files
     Spreadsheets/     <- .csv / .xlsx files
-    Notes/            <- .txt files
+    Slack/            <- the Slack export .zip, exactly as Slack gave it to you
+    Documents/        <- .docx / .pdf / .txt files
 ```
+
+**Slack:** a workspace owner or admin downloads the export from Slack (*Workspace settings → Import/Export Data → Export*) and copies the `.zip` in **without unzipping it**. In the scrubbed export, each channel's daily files are combined into one file per year (for example `general/2022-01-01.json`), because file names showing the day and month are themselves dates that must be removed. All message times are moved to January 1 of their year, and threads and replies stay linked.
+
+**PDFs:** PDFs where you can select the text are scrubbed now. Scanned PDFs (pictures of pages) are held back until Phase 3. Pictures inside Word files and PDFs are greyed out until Phase 3 adds face blurring.
 
 **Outlook users:** copy your `.pst` file in directly. If it won't read (some are encrypted or very old), open Outlook on Windows and use *File → Open & Export → Import/Export → Export to a file → Outlook Data File (.pst)* without a password, then copy that file in. Outlook for Mac can't make `.pst` files. Instead, drag the folders into Apple Mail and use *Mailbox → Export Mailbox*, then copy the exported `.mbox` folders in. Single `.msg` files aren't supported, so export the whole folder instead.
 
@@ -113,7 +118,7 @@ If you spot a name or ID that wasn't removed, add it to **`config/scrubber.yaml`
 14. Web addresses (URLs)
 15. IP addresses
 16. Biometric identifiers. Voice recordings (voicemails, call recordings, videos) are **never exported**.
-17. Face photos. Images are **never exported** in Phase 1.
+17. Face photos. Image files are **never exported**, and pictures inside Word files and PDFs are greyed out (until Phase 3).
 18. Any other unique number or code (claim and case numbers, usernames, social media handles, long ID codes)
 
 Large public companies such as UnitedHealthcare, Microsoft and Medicare are left in. You can change that list in `config/scrubber.yaml`.
@@ -126,5 +131,6 @@ Large public companies such as UnitedHealthcare, Microsoft and Medicare are left
 | `unknown command: docker compose` | Your Docker is missing the Compose add-on. Docker Desktop includes it. On Mac with Homebrew, run `brew install docker-compose`. |
 | "Refusing to run: network interfaces present" | You started the scrubber some other way. Always use `docker compose up`, which switches the network off. |
 | A file shows as "could not be opened (encrypted or damaged)" | Remove the password in the program that made it, save a copy, put the copy in `input`, and run again. |
+| A PDF shows as "text layer is unreadable" in the review list | The PDF uses an unusual font that hides its text. Open it, check it by eye, and approve or reject it. |
 
 For technical details, see [docs/TECHNICAL.md](docs/TECHNICAL.md).
