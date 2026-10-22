@@ -142,7 +142,7 @@ Parts covered:
 
   It is regenerated after every run and every decision. A test checks that it holds no identifiers and no snippets.
 
-**License note.** PyMuPDF is AGPL-3.0, or a paid Artifex commercial license. Shipping this tool to sellers with PyMuPDF inside means either releasing the tool's source under AGPL terms or buying a commercial license. If neither is acceptable, `pypdf` (BSD) plus `pdfplumber` (MIT) can replace it, but true redaction then has to be hand-built. Decide before distributing.
+**License.** The project is licensed **AGPL-3.0** (`LICENSE`), as decided on 2026-10-22, because it includes PyMuPDF (AGPL-3.0). Every other dependency is MIT, BSD or Apache-2.0, all compatible with it (`THIRD_PARTY_LICENSES.md`). AGPL obligations are met by distributing the tool as its source folder: sellers build the image from source with `docker compose up`. If a prebuilt image is ever distributed instead, the matching source must be offered alongside it.
 
 ## Tests and recall
 

@@ -150,3 +150,8 @@ Large public companies such as UnitedHealthcare, Microsoft and Medicare are left
 | A PDF shows as "text layer is unreadable" in the review list | The PDF uses an unusual font that hides its text. Open it, check it by eye, and approve or reject it. |
 
 For technical details, see [docs/TECHNICAL.md](docs/TECHNICAL.md).
+
+## License
+
+This tool is free software under the **GNU Affero General Public License v3.0** (`LICENSE`). The folder you received *is* the complete source code, so you can read exactly how your data is scrubbed. You may also change the tool or share it, under the same license. Third-party components and their licenses are listed in `THIRD_PARTY_LICENSES.md`.
+
