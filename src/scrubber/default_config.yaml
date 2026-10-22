@@ -187,6 +187,23 @@ mbox:
   shard_mb: 256
   checkpoint_every: 200
 
+images:
+  # Mean Tesseract confidence (0-100) below this sends the file to human review.
+  min_ocr_confidence: 60
+  # Share of very-low-confidence words that suggests handwriting (-> review).
+  handwriting_share: 0.4
+  # YuNet face detector confidence (0-1). Lower = blur more aggressively.
+  face_score_threshold: 0.6
+  # Images larger than this (pixels, longest side) are OCR'd on a scaled copy.
+  max_ocr_side: 4000
+  # Resolution used to rebuild scanned PDF pages.
+  scanned_pdf_dpi: 200
+
+audio:
+  # Voice recordings are never exported. With transcribe: true (and an image
+  # built with WITH_WHISPER=1) a scrubbed text transcript is exported instead.
+  transcribe: false
+
 json:
   # Plain .json files are loaded whole; larger ones should be JSON Lines.
   max_mb: 1024

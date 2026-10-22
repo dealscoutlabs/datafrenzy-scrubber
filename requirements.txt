@@ -14,3 +14,10 @@ lxml>=5.3,<7
 # PyMuPDF is AGPL-3.0 (or a paid Artifex license) - see docs/TECHNICAL.md
 PyMuPDF==1.28.2
 Pillow==12.3.0
+# Phase 3: images, scanned PDFs, faces, DICOM
+presidio-image-redactor==0.0.60
+opencv-python==4.14.0.94
+pytesseract==0.3.13
+pydicom==3.0.2
+python-gdcm==3.2.6
+pillow-heif==1.8.0

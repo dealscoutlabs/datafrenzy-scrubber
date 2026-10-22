@@ -280,10 +280,12 @@ def _scrub_leaf_body(part: Message, ctx: Context, item: str, depth: int, ctype: 
             return placeholder(part, ctx, item, "Outlook TNEF (winmail.dat) attachment cannot be scrubbed")
         elif part.get_content_maintype() in ("audio", "video") or ext in MEDIA_EXT:
             return placeholder(part, ctx, item, "audio/video contains voiceprints (biometric identifier)")
-        elif part.get_content_maintype() == "image" or ext in IMAGE_EXT:
-            return placeholder(part, ctx, item, "image attachment (face/OCR redaction arrives in Phase 3)")
+        elif ctype == "image/svg+xml" or ext == ".svg":
+            return placeholder(part, ctx, item, "vector image (SVG) attachments are not supported")
         else:
             name = part.get_filename() or ""
+            if not name and part.get_content_maintype() == "image":
+                name = "inline." + (part.get_content_subtype() or "png")  # inline pictures often have no name
             if ext == ".eml" or ctype == "application/eml":
                 name = name or "attached.eml"
             out = scrub_bytes(name, part.get_payload(decode=True) or b"", ctx, item, ctype=ctype, depth=depth + 1)

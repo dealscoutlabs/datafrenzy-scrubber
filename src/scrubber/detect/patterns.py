@@ -111,6 +111,9 @@ URL = r"(?i)\b(?:https?://|ftp://|www\.)[^\s<>\"'()\[\]]*[^\s<>\"'()\[\].,;:!?]"
 
 PHONE = (r"(?<![\w+])(?:(?:\+?1|001)[\s.-]?)?(?:\(\d{3}\)\s?|\d{3}[\s.-]?)\d{3}[\s.-]?\d{4}"
          r"(?:\s*(?:x|ext\.?|extension)\s*\d{1,6})?(?![\w])")
+# Numbers read out digit by digit, as speech-to-text writes them: "2-1-2-5-5-5-0-1-4-3", "2 1 2, 5 5 5".
+SPOKEN_DIGITS = r"(?<![\w-])\d(?:(?:-|,?[ \t])\d){6,15}(?![\w-])"
+
 FAX_CONTEXT = r"(?i)(?:\bfax\b|\bfacsimile\b|\bf\s*[:#]|\bfx\b)[^\n\d]{0,15}$"
 
 SSN = r"(?<![\d-])(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}(?![\d-])"
@@ -154,6 +157,9 @@ drafts draft archive archives outbox trash junk spam folder folders calendar con
 chart record records medical number no num serial device vin plate ip url website web profile handle
 follow call called contact contacts emergency spouse husband wife son daughter mother father mom dad
 see sons brothers bros associates partners group inc llc ltd co corp corporation company plc pc pllc lp llp
+labs lab results result report reports imaging radiology pharmacy billing scheduling referral referrals intake
+discharge summary forms form consent claims claim invoice invoices statement statements schedule agenda minutes
+update updates meeting meetings team staff admin office reception front desk triage pending approved urgent
 """.split())
 
 # Ordinary lowercase words that also appear in the Census name lists; never

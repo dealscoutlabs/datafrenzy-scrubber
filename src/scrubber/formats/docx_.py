@@ -177,6 +177,16 @@ def _blank_image(blob: bytes) -> bytes:
     return out.getvalue()
 
 
+def _scrub_picture(blob: bytes, ctx: Context, where: str, depth: int) -> bytes:
+    """OCR-redact and face-blur a picture; vector formats (EMF/WMF) can't be read, so they are blanked."""
+    from .image import scrub_image_bytes
+    try:
+        return scrub_image_bytes(blob, ctx, where, depth)
+    except Exception:
+        ctx.quarantine(where, "picture in a format that can't be checked (e.g. EMF/WMF) - replaced with a blank")
+        return _blank_image(blob)
+
+
 def _core_properties(doc, ctx: Context) -> None:
     cp = doc.core_properties
     for attr in ("author", "last_modified_by"):
@@ -228,8 +238,7 @@ def scrub_document(doc, ctx: Context, item: str, depth: int = 0) -> list[str]:
             if not isinstance(part, XmlPart):
                 part._blob = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
         elif ctype.startswith("image/") or name.startswith("/word/media/"):
-            part._blob = _blank_image(part.blob)
-            ctx.quarantine(f"{item} image {Path(name).name}", "embedded image blanked (face/OCR redaction arrives in Phase 3)")
+            part._blob = _scrub_picture(part.blob, ctx, f"{item} image {Path(name).name}", depth)
         elif name.startswith("/word/embeddings/"):
             out = None
             try:

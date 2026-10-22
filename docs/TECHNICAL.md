@@ -1,4 +1,4 @@
-# Technical notes (Phases 1–2)
+# Technical notes (Phases 1–3)
 
 ## Layout
 
@@ -80,11 +80,40 @@ Parts covered:
 - Any page more than 30% covered by images is treated as scanned, and the file is quarantined for Phase 3. Smaller images are greyed out.
 - Drawn tokens are appended to the page content. Extract text by position (`get_text(sort=True)`, `pdftotext`) to read them in place.
 
+## Phase 3: images, scans, faces, DICOM, audio
+
+- **OCR redaction** (`formats/image.py`, `detect/vision.py`).
+  - Tesseract (bundled) runs through presidio-image-redactor's `ImageAnalyzerEngine`/`ImageRedactorEngine`. `DetectorAdapter` swaps Presidio's default text analyzer for our `Detector`, so images get the same 18-identifier rules, thresholds and allowlists as text.
+  - Images larger than `images.max_ocr_side` are OCR'd on a scaled copy, and the boxes are painted at full size.
+- **Confidence gates.**
+  - Mean word confidence below `images.min_ocr_confidence` (60) sends the file to review.
+  - So does a share of very-unsure words (<30) above `images.handwriting_share` (0.4), a heuristic for handwriting. Tesseract has no handwriting detector.
+  - Verification OCRs the output again (words with confidence ≥ 60 only, so black-box edges don't read as names) and runs face detection again.
+- **Faces.** OpenCV YuNet (bundled, `data/models/`) runs at `images.face_score_threshold` (0.6). Each face plus a 40% margin is pixelated to a 4×4 grid and softened. On our test faces, YuNet finds nothing afterwards even at a 0.2 threshold.
+- **Metadata.**
+  - EXIF orientation is baked into the pixels.
+  - All identifying EXIF/TIFF/XMP/IPTC tags are dropped, including GPS, camera make/model/serial, owner, artist and dates. ICC colour profiles are kept.
+  - Files are re-saved in their original format. Multi-page TIFF, animated GIF/WebP and HEIC (pillow-heif) are supported. MPO keeps its main picture.
+- **Scanned PDFs.** A page more than 30% covered by images is rendered at `images.scanned_pdf_dpi`, cleaned as an image, and rebuilt as an image-only page. Text pages keep the true-redaction path. Pictures on text pages are cleaned and swapped back in with `replace_image`.
+- **DICOM** (`formats/dicom.py`).
+  - presidio's `DicomImageRedactorEngine` boxes out burned-in text, using the file's own patient tags as an extra deny list. It runs before the tags are scrubbed.
+  - Tags by VR:
+    - PN becomes a token.
+    - DA/DT become Jan 1 of the year. A birth date that reveals age over 89 is emptied, and the age becomes `090Y`.
+    - UIDs map through HMAC to `2.25.x`, consistent across files. Standard UIDs are kept.
+    - AE, UR and free-text VRs are scrubbed.
+    - Values are cut to VR length limits.
+  - Specific IDs (PatientID, AccessionNumber, StationName, DeviceSerialNumber …) are typed tokens. Private tags, overlays and curves are removed. `PatientIdentityRemoved=YES` is set.
+  - Compressed pixel data is written back uncompressed.
+- **Audio/video.** Recordings are always quarantined unless `audio.transcribe: true` and the image was built with `WITH_WHISPER=1`. That build installs faster-whisper and downloads the model (`WHISPER_MODEL`, default `base.en`, ~140 MB) **at build time**. Then only `<name>.transcript.txt` is exported, scrubbed by the text pipeline, and the recording is never written anywhere.
+  - A spoken-digits recognizer catches numbers as transcripts write them ("2-1-2-5-5-5-0-1-4-3").
+  - The real transcription test (espeak-ng synthetic speech → Whisper → scrub) runs only in that image.
+
 **License note.** PyMuPDF is AGPL-3.0, or a paid Artifex commercial license. Shipping this tool to sellers with PyMuPDF inside means either releasing the tool's source under AGPL terms or buying a commercial license. If neither is acceptable, `pypdf` (BSD) plus `pdfplumber` (MIT) can replace it, but true redaction then has to be hand-built. Decide before distributing.
 
 ## Tests and recall
 
-`scripts/test.sh` runs 161 tests in the network-less container. They include `tests/test_formats_identifiers.py`, which pushes every one of the 18-identifier cases through every format (txt, eml, csv, xlsx, json, Slack, docx with runs split mid-identifier, pdf).
+`scripts/test.sh` runs 182 tests in the network-less container (one is skipped unless the image includes Whisper). They include `tests/test_formats_identifiers.py`, which pushes every one of the 18-identifier cases through every format (txt, eml, csv, xlsx, json, Slack, docx with runs split mid-identifier, pdf).
 
 Recall on synthetic free text (N=200 per type, `tests/test_recall.py`):
 
@@ -109,7 +138,11 @@ The templates were written alongside the recognizers, so these figures are optim
 - XLSX: embedded images and pivot caches are removed (and listed). Charts are dropped by openpyxl. Rich text inside a single cell is flattened to plain text. `.xlsm` and `.xls` are quarantined.
 - Email attachments that are images, audio/video or unsupported types are replaced with a short note part and listed in the report. PDF, DOCX, JSON, zip, CSV and XLSX attachments are scrubbed in place.
 - A lone surname that is also an ordinary word, in a file name or a short label ("West_contacts.csv"), is only caught if that name was harvested from headers, name columns or Slack `users.json`.
-- PDF text drawn as vector outlines (no real characters) can't be read, so it can't be redacted. Phase 3's OCR pass will cover it.
+- PDF text drawn as vector outlines on a mostly-text page isn't extracted and isn't OCR'd (only scanned-looking pages are). It survives untouched.
+- **Faces were tested only on drawn faces.** The no-real-data rule rules out real photos, so the detector's recall on real faces (profiles, small faces in group photos, masks) is not measured here. Before relying on it, validate it on a licensed synthetic face set (e.g. GAN-generated faces of no real person).
+- Text the OCR can't read at all (very blurry, tiny, stylized) yields zero words, which no confidence gate can catch. There is no separate "is there text here?" detector.
+- Pictures inside XLSX are removed rather than cleaned (openpyxl can't write a replacement back).
+- DICOM: 3-D volumes (CT/MR of the head) can be rendered into a face. Defacing volumes is outside Safe Harbor tooling here, so treat head scans as needing expert review.
 - Plain `.json` files load fully into memory (`json.max_mb`, 1 GB default). Larger exports should be JSON Lines, which is streamed.
 - `.pst` output is a folder of `.mbox` files (`archive.pst.mbox/<folder>.mbox`). There is no free writer for `.pst`.
 - Organization names made of ordinary surnames ("Gray and Duncan") are tokenized as PERSON, not ORG. They are still removed, but counted under the wrong category.

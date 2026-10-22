@@ -88,17 +88,30 @@ def test_identifier_removed(scrubber, category, text, secrets, etype):
 
 def test_every_category_has_a_text_case_or_handler():
     covered = {c[0] for c in CASES}
-    # 17 (faces) is handled by never exporting images in Phase 1 (see below);
-    # 16 also covers audio/video quarantine.
+    # 17 (faces) is an image check (see test_17_*); 16 also covers audio/video quarantine.
     assert covered | {17} == {c.number for c in SAFE_HARBOR}
 
 
-@pytest.mark.parametrize("name", ["visit.jpg", "scan.png", "photo.HEIC", "xray.tiff"])
-def test_17_face_images_never_exported(name, tmp_path):
+@pytest.mark.parametrize("name", ["visit.jpg", "scan.png", "photo.HEIC", "xray.tiff", "ct.dcm"])
+def test_17_images_are_handled_as_images(name, tmp_path):
     p = tmp_path / name
     p.write_bytes(b"\xff\xd8\xff" + bytes(32))
     kind, reason = classify(p)
-    assert kind == "later" and "face" in reason
+    assert kind in ("image", "dicom") and reason is None
+
+
+def test_17_full_face_photos_blurred(ctx):
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    from fixtures.synth_images import drawn_face, save
+    from scrubber.detect.vision import FaceDetector
+    from scrubber.formats.image import scrub_image_bytes
+    out = Image.open(io.BytesIO(scrub_image_bytes(save(drawn_face(500), "JPEG"), ctx, "face.jpg")))
+    assert FaceDetector(0.6).detect(np.array(out.convert("RGB")), 0.2) == []
+    assert ctx.tally.counts["FACE_IMAGE"] == 1
 
 
 @pytest.mark.parametrize("name", ["voicemail.wav", "call.mp3", "visit.m4a", "telehealth.mp4"])

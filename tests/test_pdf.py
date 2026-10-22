@@ -4,10 +4,8 @@ import pymupdf
 
 from conftest import assert_no_secrets
 from fixtures.synth_docs import pdf_bytes, scanned_pdf_bytes
-from scrubber.formats.base import Quarantined
 from scrubber.formats.pdf import scrub_pdf_bytes
 
-import pytest
 
 
 def _scrub(synth, harvested):
@@ -64,6 +62,24 @@ def test_metadata_annotations_fields_links_scrubbed(synth, harvested):
     assert "PERSON_" in doc.embfile_get(name).decode()
 
 
-def test_scanned_pdf_is_held_for_phase_3(ctx):
-    with pytest.raises(Quarantined, match="Phase 3"):
-        scrub_pdf_bytes(scanned_pdf_bytes(), ctx, "scan.pdf")
+def test_scanned_pdf_rebuilt_from_redacted_images(ctx, synth):
+    import pytesseract
+    from PIL import Image
+
+    from fixtures import synth_images as si
+    p = synth.person()
+    src = si.scanned_pdf([si.text_image(si.note_lines(synth, p)), si.id_badge(p)])
+    doc = pymupdf.open(stream=scrub_pdf_bytes(src, ctx, "scan.pdf"), filetype="pdf")
+    assert doc.page_count == 2 and not any(v for k, v in doc.metadata.items() if k not in ("format", "encryption"))
+    for page in doc:
+        pix = page.get_pixmap(dpi=150)
+        text = pytesseract.image_to_string(Image.frombytes("RGB", (pix.width, pix.height), pix.samples))
+        for s in (p.last, p.mrn, p.ssn, p.email):
+            assert s not in text
+    assert ctx.tally.counts["FACE_IMAGE"] == 1
+    assert ctx.tally.issues == []
+
+
+def test_blank_scan_page_still_rebuilt(ctx):
+    doc = pymupdf.open(stream=scrub_pdf_bytes(scanned_pdf_bytes(), ctx, "blank.pdf"), filetype="pdf")
+    assert doc.page_count == 1

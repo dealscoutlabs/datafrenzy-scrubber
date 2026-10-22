@@ -4,8 +4,9 @@ Identifiers are found on each page's extracted text, then removed with TRUE
 redaction (add_redact_annot + apply_redactions deletes the characters from the
 content stream), and the pseudonym token is drawn where the text was. The
 file is then rewritten without its old revisions. Metadata, XMP, annotations,
-form fields, links, bookmarks and embedded files are scrubbed too. Scanned
-pages (mostly image) are left for Phase 3 and the file is not exported.
+form fields, links, bookmarks and embedded files are scrubbed too. Pictures
+are OCR-redacted and face-blurred in place. Scanned pages (mostly image) are
+rendered, redacted as images and the page is rebuilt from the clean image.
 """
 
 from __future__ import annotations
@@ -91,21 +92,56 @@ def scrub_page(page, ctx: Context, item: str) -> tuple[list[str], str]:
             page.add_redact_annot(inset, fill=(1, 1, 1))
             if n == 0:
                 overlays.append((rect, repl))
-    # small images (logos, photos) are blanked; faces/OCR arrive in Phase 3
-    images = 0
-    for img in page.get_images(full=True):
-        for r in page.get_image_rects(img[0]):
-            page.add_redact_annot(r, fill=(0.85, 0.85, 0.85))
-            images += 1
-    if spans or images:
+    if spans:
         page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_PIXELS)
-    if images:
-        ctx.quarantine(f"{item} page {page.number + 1} images", "embedded images blanked (face/OCR redaction arrives in Phase 3)")
     for rect, repl in overlays:
         fs = _fit(pymupdf, repl, rect.width, rect.height)
         page.insert_text(pymupdf.Point(rect.x0, rect.y1 - rect.height * 0.2), repl, fontname=FONT, fontsize=fs,
                          color=(0, 0, 0))
     return removed, text
+
+
+def _scrub_page_images(page, ctx: Context, item: str, done: set[int]) -> None:
+    """Pictures on text pages (logos, photos, signatures): OCR-redact and face-blur
+    each one and put it back in place. Pictures that can't be decoded are painted over."""
+    pymupdf = _pymupdf()
+    from .image import scrub_image_bytes
+
+    doc = page.parent
+    fallback = []
+    for img in page.get_images(full=True):
+        xref = img[0]
+        if xref in done:
+            continue
+        done.add(xref)
+        where = f"{item} page {page.number + 1} picture"
+        try:
+            info = doc.extract_image(xref)
+            out = scrub_image_bytes(info["image"], ctx, where)
+            page.replace_image(xref, stream=out)
+        except Exception:
+            fallback += list(page.get_image_rects(xref))
+            ctx.quarantine(where, "picture in a format that can't be checked - painted over")
+    for r in fallback:
+        page.add_redact_annot(r, fill=(0.85, 0.85, 0.85))
+    if fallback:
+        page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_PIXELS)
+
+
+def _render(page, dpi: int):
+    from PIL import Image
+    pix = page.get_pixmap(dpi=dpi, alpha=False)
+    return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+
+
+def _scan_page_png(page, ctx: Context, item: str) -> bytes:
+    """A scanned page: render, OCR-redact + face-blur, return the cleaned page image."""
+    import io as _io
+    from .image import scrub_pil
+    img = scrub_pil(_render(page, int(ctx.cfg["images"]["scanned_pdf_dpi"])), ctx, item)
+    buf = _io.BytesIO()
+    img.save(buf, "PNG", optimize=True)
+    return buf.getvalue()
 
 
 def _scrub_annotations(page, ctx: Context, item: str) -> None:
@@ -187,26 +223,48 @@ def _scrub_toc(doc, ctx: Context) -> None:
         doc.set_toc([[t[0], r.text, t[2], *(t[3:] or [])] for t, r in zip(toc, titles)])
 
 
-def scrub_pdf_doc(doc, ctx: Context, item: str, depth: int = 0) -> list[str]:
+def scrub_pdf_doc(doc, ctx: Context, item: str, depth: int = 0):
+    """Returns (document to save, removed strings). Scanned pages are replaced by
+    redacted page images, so a new document is assembled when there are any."""
+    pymupdf = _pymupdf()
     if doc.needs_pass or doc.is_encrypted:
         raise Quarantined("password-protected PDF - remove the password and re-run")
+    scanned = {}
     for page in doc:
         if _image_share(page) > SCANNED_IMAGE_SHARE:
-            raise Quarantined("scanned PDF pages (images of text) - supported in Phase 3 (OCR redaction)")
+            scanned[page.number] = _scan_page_png(page, ctx, f"{item} page {page.number + 1} (scanned)")
     removed: list[str] = []
+    done: set[int] = set()
     for page in doc:
+        if page.number in scanned:
+            continue
         r, _ = scrub_page(page, ctx, item)
         removed += r
+        _scrub_page_images(page, ctx, item, done)
         _scrub_annotations(page, ctx, item)
     _scrub_embedded(doc, ctx, item, depth)
     _scrub_toc(doc, ctx)
+    if scanned:
+        out = pymupdf.open()
+        for page in doc:
+            if page.number in scanned:
+                new = out.new_page(width=page.rect.width, height=page.rect.height)
+                new.insert_image(new.rect, stream=scanned[page.number])
+            else:
+                out.insert_pdf(doc, from_page=page.number, to_page=page.number)
+        for name in doc.embfile_names():
+            info = doc.embfile_info(name)
+            out.embfile_add(name, doc.embfile_get(name), filename=info.get("filename"),
+                            ufilename=info.get("ufilename"), desc=info.get("description"))
+        out.set_toc(doc.get_toc(simple=False))
+        doc = out
     doc.set_metadata({})
     doc.del_xml_metadata()
     doc.scrub(attached_files=False, clean_pages=True, embedded_files=False, hidden_text=False, javascript=True,
               metadata=True, redactions=False, redact_images=0, remove_links=False, reset_fields=False,
               reset_responses=True, thumbnails=True, xml_metadata=True)
     ctx.tally.records += doc.page_count
-    return removed
+    return doc, removed
 
 
 def verify_pdf(data: bytes, pages: int, removed: list[str], ctx: Context, item: str) -> None:
@@ -227,6 +285,15 @@ def verify_pdf(data: bytes, pages: int, removed: list[str], ctx: Context, item: 
             text = page.get_text(sort=True)  # by position: tokens drawn in place read in place
             full.append(text)
             ctx.residual(text, f"{item} page {page.number + 1}")
+            if _image_share(page) > SCANNED_IMAGE_SHARE:
+                import numpy as np
+
+                from ..detect.vision import ocr_text
+                from .image import vision
+                img = _render(page, int(ctx.cfg["images"]["scanned_pdf_dpi"]))
+                ctx.residual(ocr_text(img), f"{item} page {page.number + 1} (scanned)")
+                if vision(ctx).faces.detect(np.array(img)):
+                    ctx.issue(f"{item} page {page.number + 1}: a face is still detectable")
             for annot in page.annots() or []:
                 info = annot.info
                 ctx.residual("\n\n".join(info.get(k) or "" for k in ("content", "title", "subject")), f"{item} comment")
@@ -244,8 +311,8 @@ def scrub_pdf_bytes(data: bytes, ctx: Context, item: str, depth: int = 0) -> byt
     doc = pymupdf.open(stream=data, filetype="pdf")
     with doc:
         pages = doc.page_count
-        removed = scrub_pdf_doc(doc, ctx, item, depth)
-        out = doc.tobytes(garbage=4, deflate=True, clean=True)
+        result, removed = scrub_pdf_doc(doc, ctx, item, depth)
+        out = result.tobytes(garbage=4, deflate=True, clean=True)
     verify_pdf(out, pages, removed, ctx, item)
     return out
 

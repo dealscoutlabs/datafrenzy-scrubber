@@ -7,7 +7,16 @@ This program removes patient and personal information from your business files *
 - **The same person always gets the same stand-in.** "Maria Gonzalez" is `PERSON_0412` in every email and spreadsheet, so conversations still make sense.
 - It follows the **HIPAA Safe Harbor** method, which covers all 18 types of identifiers.
 
-> **Status: Phase 2.** Works today: email (`.eml`, `.mbox`, Outlook `.pst`), spreadsheets (`.csv`, `.xlsx`), Slack workspace exports (`.zip`), Word documents (`.docx`), PDFs that contain selectable text, JSON files and plain text. Coming later: photos, scanned documents and X-rays (Phase 3), and the review web page and full audit report (Phase 4). Files the scrubber can't handle yet are **never exported**. They are listed in the report instead.
+> **Status: Phase 3.** Works today:
+> - email (`.eml`, `.mbox`, Outlook `.pst`)
+> - spreadsheets (`.csv`, `.xlsx`)
+> - Slack workspace exports (`.zip`)
+> - Word documents (`.docx`) and PDFs, including scanned PDFs
+> - photos and images (`.jpg`, `.png`, `.tif`, `.heic` and more)
+> - medical images (`.dcm` DICOM)
+> - JSON files and plain text
+>
+> Voice recordings are never exported. Coming in Phase 4: the review web page and the full audit report. Files the scrubber can't handle are **never exported**. They are listed in the report instead.
 
 ---
 
@@ -41,7 +50,19 @@ datafrenzy-scrubber/
 
 **Slack:** a workspace owner or admin downloads the export from Slack (*Workspace settings → Import/Export Data → Export*) and copies the `.zip` in **without unzipping it**. In the scrubbed export, each channel's daily files are combined into one file per year (for example `general/2022-01-01.json`), because file names showing the day and month are themselves dates that must be removed. All message times are moved to January 1 of their year, and threads and replies stay linked.
 
-**PDFs:** PDFs where you can select the text are scrubbed now. Scanned PDFs (pictures of pages) are held back until Phase 3. Pictures inside Word files and PDFs are greyed out until Phase 3 adds face blurring.
+**Pictures and scans:**
+- Text in photos, scans and scanned PDFs is read on your computer, and names, numbers and other identifiers are blacked out.
+- Faces are blurred beyond recognition.
+- Camera details, dates and GPS location are removed from photos.
+- Scanned PDFs are rebuilt from the cleaned page images.
+- Blurry, faint or handwritten text that the reader isn't sure about is **held for review** instead of exported.
+- Pictures inside spreadsheets are removed. Pictures inside Word files, PDFs and emails are cleaned the same way as photos.
+
+**Medical images (DICOM):** patient name, ID, birth date, dates, institution and similar fields are scrubbed, and text burned into the image is blacked out. Studies and series stay linked to each other.
+
+**Voicemails and call recordings** are never exported, because a voice is a biometric identifier. If you want the *words* of recordings, the scrubber can type them out on your computer and export only the scrubbed text. This needs a larger install (about 150 MB more), so it is off by default. To turn it on:
+1. Run `docker compose build --build-arg WITH_WHISPER=1` once.
+2. Add `audio: {transcribe: true}` to `config/scrubber.yaml`.
 
 **Outlook users:** copy your `.pst` file in directly. If it won't read (some are encrypted or very old), open Outlook on Windows and use *File → Open & Export → Import/Export → Export to a file → Outlook Data File (.pst)* without a password, then copy that file in. Outlook for Mac can't make `.pst` files. Instead, drag the folders into Apple Mail and use *Mailbox → Export Mailbox*, then copy the exported `.mbox` folders in. Single `.msg` files aren't supported, so export the whole folder instead.
 
@@ -117,8 +138,8 @@ If you spot a name or ID that wasn't removed, add it to **`config/scrubber.yaml`
 13. Device IDs and serial numbers
 14. Web addresses (URLs)
 15. IP addresses
-16. Biometric identifiers. Voice recordings (voicemails, call recordings, videos) are **never exported**.
-17. Face photos. Image files are **never exported**, and pictures inside Word files and PDFs are greyed out (until Phase 3).
+16. Biometric identifiers. Voice recordings (voicemails, call recordings, videos) are **never exported**; optionally, scrubbed transcripts are.
+17. Face photos. Faces in photos, scans, documents and medical images are blurred beyond recognition.
 18. Any other unique number or code (claim and case numbers, usernames, social media handles, long ID codes)
 
 Large public companies such as UnitedHealthcare, Microsoft and Medicare are left in. You can change that list in `config/scrubber.yaml`.

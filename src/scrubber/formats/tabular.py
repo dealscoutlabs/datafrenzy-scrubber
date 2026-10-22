@@ -378,7 +378,8 @@ def scrub_workbook(wb, ctx: Context, item: str) -> None:
             ctx.quarantine(f"{item}!{ws.title} pivot tables", "pivot cache holds unscrubbed copies of data")
             ws._pivots = []
         if getattr(ws, "_images", None):
-            ctx.quarantine(f"{item}!{ws.title} images", "embedded images (face/OCR redaction arrives in Phase 3)")
+            ctx.quarantine(f"{item}!{ws.title} images", "pictures in spreadsheets are removed (the spreadsheet "
+                                                           "library can't put a scrubbed copy back)")
             ws._images = []
         new_title = ctx.scrubber.scrub(ws.title, ctx.tally).text
         if new_title != ws.title:

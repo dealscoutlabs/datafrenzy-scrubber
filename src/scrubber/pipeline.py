@@ -23,7 +23,8 @@ from . import __version__
 from .config import config_hash, load_zip3_restricted
 from .detect.engine import Detector
 from .detect.harvest import harvest_file, known_entries
-from .formats import archive, docx_, email_, json_, mbox, pdf, tabular, text
+from .formats import archive, audio, dicom, docx_, email_, image, json_, mbox, pdf, tabular, text
+from .formats.dispatch import IMAGE_EXT
 from .formats.base import Context, Quarantined
 from .identifiers import SAFE_HARBOR, ENTITY_TO_CATEGORY
 from .keys import load_or_create_key
@@ -36,18 +37,19 @@ log = logging.getLogger("scrubber")
 
 SUPPORTED = {".eml": "eml", ".mbox": "mbox", ".mbx": "mbox", ".pst": "pst", ".ost": "pst", ".csv": "csv",
              ".tsv": "csv", ".xlsx": "xlsx", ".txt": "text", ".text": "text", ".md": "text", ".log": "text",
-             ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl", ".zip": "zip", ".docx": "docx", ".pdf": "pdf"}
-HANDLED = {"eml", "mbox", "csv", "xlsx", "text", "json", "jsonl", "zip", "docx", "pdf"}
-LATER_PHASE = {
-    ".dcm": "DICOM is supported in Phase 3", ".dicom": "DICOM is supported in Phase 3",
-    **{e: "images are supported in Phase 3 (OCR redaction + face blurring)" for e in email_.IMAGE_EXT},
-}
+             ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl", ".zip": "zip", ".docx": "docx", ".pdf": "pdf",
+             ".dcm": "dicom", ".dicom": "dicom", **{e: "image" for e in IMAGE_EXT}}
+HANDLED = {"eml", "mbox", "csv", "xlsx", "text", "json", "jsonl", "zip", "docx", "pdf", "image", "dicom", "media"}
 MEDIA_REASON = "audio/video contains voiceprints (biometric identifier) - never exported"
+NO_WHISPER = ("audio/video contains voiceprints (biometric identifier) - never exported; transcription is "
+              "turned on but this install has no Whisper model (rebuild with WITH_WHISPER=1)")
 UNSUPPORTED = {
     ".xls": "old Excel format - save as .xlsx and re-run", ".xlsm": "Excel file with macros - save as .xlsx and re-run",
     ".doc": "old Word format - save as .docx and re-run", ".rtf": "RTF is not supported - save as .docx and re-run",
     ".docm": "Word file with macros - save as .docx and re-run",
     ".msg": "Outlook .msg - export the folder to .mbox or .pst instead (see README)",
+    ".svg": "vector images (SVG) are not supported - save as PNG and re-run",
+    ".psd": "Photoshop files are not supported - save as PNG/JPEG and re-run",
 }
 SYSTEM_FILES = {".ds_store", "thumbs.db", "desktop.ini", ".localized"}
 
@@ -86,12 +88,12 @@ def classify(path: Path) -> tuple[str, str | None]:
         return SUPPORTED[ext], None
     if ext in email_.MEDIA_EXT:
         return "media", MEDIA_REASON
-    if ext in LATER_PHASE:
-        return "later", LATER_PHASE[ext]
     if ext in UNSUPPORTED:
         return "unsupported", UNSUPPORTED[ext]
     if not ext and mbox.looks_like_mbox(path):
         return "mbox", None
+    if dicom.looks_like_dicom(path):
+        return "dicom", None
     return "unknown", "unknown, encrypted or binary format - not exported"
 
 
@@ -156,6 +158,12 @@ def run_job(job: tuple[str, int]) -> tuple[str, int, str]:
                 docx_.process_docx(src, dst, ctx)
             elif f["kind"] == "pdf":
                 pdf.process_pdf(src, dst, ctx)
+            elif f["kind"] == "image":
+                image.process_image(src, dst, ctx)
+            elif f["kind"] == "dicom":
+                dicom.process_dicom(src, dst, ctx)
+            elif f["kind"] == "media":
+                audio.process_media(src, dst, ctx)
             else:
                 raise Quarantined(f"no handler for {f['kind']}")
         store.finish_shard(rel, idx, "done", counts=ctx.tally.to_dict(), error=None)
@@ -208,6 +216,8 @@ class Runner:
                 rel = p.relative_to(self.paths.input).as_posix()
                 st = p.stat()
                 kind, reason = classify(p)
+                if kind == "media" and self.cfg["audio"].get("transcribe"):
+                    reason = None if audio.transcription_enabled(self.cfg) else NO_WHISPER
                 status = self.store.upsert_file(rel, str(p), kind, st.st_size, f"{st.st_size}:{st.st_mtime_ns}",
                                                 self.chash)
                 if reason and status == "pending":
@@ -283,6 +293,8 @@ class Runner:
             out = "/".join(parts)
             if r["kind"] == "pst":
                 out += ".mbox"
+            if r["kind"] == "media":
+                out += audio.TRANSCRIPT_SUFFIX  # only the scrubbed transcript is ever exported
             base, n = out, 2
             while out in taken and out != r["out_rel"]:
                 stem, dot, ext = base.rpartition(".")

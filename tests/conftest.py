@@ -20,6 +20,18 @@ from fixtures.synth import Synth  # noqa: E402
 # The suite itself must never touch the network either.
 netguard.install()
 
+if __import__("os").environ.get("SCRUBBER_DEBUG_RESIDUAL"):
+    # print what verification flags (debug aid; never on by default)
+    import scrubber.formats.base as _base
+    _orig = _base.Context.residual
+
+    def _debug_residual(self, text, where):
+        for f in self.scrubber.detector.detect(text):
+            if f.score >= float(self.cfg["verification"]["residual_threshold"]):
+                print("RESIDUAL", where, f.etype, repr(f.text), f.source, "|", repr(text[max(0, f.start - 60):f.end + 40]))
+        return _orig(self, text, where)
+    _base.Context.residual = _debug_residual
+
 REFERENCE_YEAR = 2026
 
 

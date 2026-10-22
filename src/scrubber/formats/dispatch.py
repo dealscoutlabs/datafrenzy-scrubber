@@ -30,7 +30,14 @@ def kind_of(name: str, ctype: str = "") -> str | None:
         return "zip"
     if ext in (".txt", ".text", ".md", ".log") or ctype == "text/plain":
         return "text"
+    if ext in IMAGE_EXT or (ctype.startswith("image/") and ctype not in ("image/svg+xml",) and not ext):
+        return "image"
+    if ext in (".dcm", ".dicom") or ctype == "application/dicom":
+        return "dicom"
     return None
+
+
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".jpe", ".gif", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".webp"}
 
 
 def scrub_bytes(name: str, data: bytes, ctx: Context, item: str, ctype: str = "", depth: int = 0) -> bytes | None:
@@ -58,6 +65,12 @@ def scrub_bytes(name: str, data: bytes, ctx: Context, item: str, ctype: str = ""
     if kind == "zip":
         from .archive import scrub_zip_bytes
         return scrub_zip_bytes(data, ctx, item, depth + 1)
+    if kind == "image":
+        from .image import scrub_image_bytes
+        return scrub_image_bytes(data, ctx, item, depth + 1)
+    if kind == "dicom":
+        from .dicom import scrub_dicom_bytes
+        return scrub_dicom_bytes(data, ctx, item, depth + 1)
     if kind == "text":
         from .json_ import decode
         text, enc = decode(data)

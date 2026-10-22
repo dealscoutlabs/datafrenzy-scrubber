@@ -258,18 +258,20 @@ def shape(obj: Any) -> Any:
     return "scalar"
 
 
-def strings(obj: Any, key: str = "") -> list[str]:
-    """Free-text-ish string values, for residual detection."""
+def strings(obj: Any, key: str = "", path: tuple = ()) -> list[str]:
+    """Free-text-ish string values, for residual detection (skips the same keys the walker keeps)."""
     out: list[str] = []
     if isinstance(obj, dict):
         for k, v in obj.items():
-            out += strings(v, k)
+            out += strings(v, k, path + (k,))
     elif isinstance(obj, list):
         for v in obj:
-            out += strings(v, key)
+            out += strings(v, key, path)
     elif isinstance(obj, str) and obj.strip():
         k = key.lower()
         if k in KEEP_KEYS or _ts_key(k) or SLACK_TS.match(obj) or SLACK_ID.match(obj):
+            return out
+        if k == "name" and any(p in NAME_CONTEXT_KEEP for p in path):
             return out
         out.append(obj)
     return out

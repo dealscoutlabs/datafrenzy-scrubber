@@ -70,7 +70,8 @@ def test_hyperlinks_and_images(synth, harvested):
     assert re.search(r'Target="mailto:email_\d{4}@scrubbed\.invalid"', rels)
     z_in, z_out = zipfile.ZipFile(io.BytesIO(src)), zipfile.ZipFile(io.BytesIO(out))
     media = [n for n in z_in.namelist() if n.startswith("word/media/")]
-    assert media and all(z_in.read(n) != z_out.read(n) for n in media)
     from PIL import Image
-    with Image.open(io.BytesIO(z_out.read(media[0]))) as im:
-        assert im.size == (40, 30) and len(set(im.getdata())) == 1  # blank, same size
+    from scrubber.formats.image import has_metadata
+    for n in media:
+        with Image.open(io.BytesIO(z_out.read(n))) as im:
+            assert im.size == Image.open(io.BytesIO(z_in.read(n))).size and has_metadata(im) == []

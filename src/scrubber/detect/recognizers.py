@@ -252,6 +252,10 @@ def build_custom_recognizers(cfg: dict, first_names, last_names) -> list[EntityR
         RegexRecognizer("dates_no_year", "DATE", [P.DATE_NO_YEAR], 0.8, group="value"),
         RegexRecognizer("us_phone", "PHONE_NUMBER", [P.PHONE], 0.7),
         RegexRecognizer("full_url", "URL", [P.URL], 0.9),
+        RegexRecognizer("spoken_phone", "PHONE_NUMBER", [P.SPOKEN_DIGITS], 0.0,
+                        scorer=lambda v: 0.65 if len(re.sub(r"\D", "", v)) in (7, 9, 10, 11) else None),
+        RegexRecognizer("spoken_number", "OTHER_ID", [P.SPOKEN_DIGITS], 0.0,
+                        scorer=lambda v: 0.6 if len(re.sub(r"\D", "", v)) not in (7, 9, 10, 11) else None),
         NameGazetteerRecognizer(first_names, last_names),
     ]
     for i, entry in enumerate(cfg.get("custom_patterns") or []):

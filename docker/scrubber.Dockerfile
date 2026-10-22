@@ -11,11 +11,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1 \
-    SCRUBBER_IN_CONTAINER=1
+    SCRUBBER_IN_CONTAINER=1 \
+    MPLCONFIGDIR=/tmp/matplotlib \
+    XDG_CACHE_HOME=/tmp/cache
 
-# pst-utils provides readpst (Outlook .pst -> mbox).
+# pst-utils: readpst (Outlook .pst -> mbox). tesseract: OCR for images and
+# scanned PDFs. libgl1/libglib2.0: OpenCV (face detection).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends pst-utils \
+ && apt-get install -y --no-install-recommends pst-utils tesseract-ocr tesseract-ocr-eng libgl1 libglib2.0-0 \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/scrubber
@@ -23,6 +26,16 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt \
  && pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl \
  && python -c "import spacy; spacy.load('en_core_web_lg')"
+
+# Optional local speech-to-text for call recordings (docker compose build --build-arg WITH_WHISPER=1).
+# The model is downloaded here, at build time, and never at runtime.
+ARG WITH_WHISPER=0
+ARG WHISPER_MODEL=base.en
+RUN if [ "$WITH_WHISPER" = "1" ]; then \
+      pip install faster-whisper==1.2.1 \
+      && HF_HUB_OFFLINE=0 python -c "from faster_whisper.utils import download_model; download_model('$WHISPER_MODEL', output_dir='/opt/scrubber/models/whisper')" ; \
+    fi
+ENV SCRUBBER_WHISPER_DIR=/opt/scrubber/models/whisper
 
 COPY data/ /opt/scrubber/data/
 COPY src/ /opt/scrubber/src/
@@ -41,6 +54,8 @@ FROM runtime AS test
 USER root
 COPY requirements-dev.txt .
 RUN pip install -r requirements-dev.txt
+# espeak-ng: synthetic speech for the optional Whisper test (test image only)
+RUN apt-get update && apt-get install -y --no-install-recommends espeak-ng && rm -rf /var/lib/apt/lists/*
 COPY tests/ /opt/scrubber/tests/
 COPY docker-compose.yml /opt/scrubber/docker-compose.yml
 USER scrubber

@@ -104,13 +104,35 @@ def test_pdf(ctx, synth):
     _check("\n".join(p.get_text(sort=True) for p in doc), "pdf")
 
 
-def test_17_images_never_exported_in_phase_2_formats(ctx, synth):
-    """Faces: images inside Word/PDF files are blanked until Phase 3 adds face blurring."""
+def test_17_faces_blurred_inside_documents(ctx, synth):
+    """Pictures inside PDFs, Word files and emails get the same OCR + face treatment."""
+    import numpy as np
     import pymupdf
-    from fixtures.synth_docs import pdf_bytes
+    from PIL import Image
+
+    from fixtures.synth_images import id_badge, save
+    from scrubber.detect.vision import FaceDetector
+    from scrubber.formats.email_ import parse, scrub_message_bytes
     from scrubber.formats.pdf import scrub_pdf_bytes
-    people = [synth.person() for _ in range(3)]
-    out = pymupdf.open(stream=scrub_pdf_bytes(pdf_bytes(synth, people), ctx, "img.pdf"), filetype="pdf")
-    for img in out[0].get_images(full=True):
-        pix = pymupdf.Pixmap(out, img[0])
-        assert len(set(pix.samples)) <= 3  # flat grey, the red test image is gone
+
+    p = synth.person()
+    badge = save(id_badge(p), "PNG")
+    fd = FaceDetector(0.6)
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((50, 50), "Staff badge on file", fontsize=11)
+    page.insert_image(pymupdf.Rect(50, 70, 400, 230), stream=badge)
+    out = pymupdf.open(stream=scrub_pdf_bytes(doc.tobytes(), ctx, "badge.pdf"), filetype="pdf")
+    xref = out[0].get_images(full=True)[0][0]
+    img = Image.open(io.BytesIO(out.extract_image(xref)["image"])).convert("RGB")
+    assert fd.detect(np.array(img), 0.2) == []
+
+    msg = EmailMessage()
+    msg["From"], msg["To"], msg["Subject"] = "a@example.com", "b@example.com", "badge"
+    msg.set_content("attached")
+    msg.add_attachment(badge, maintype="image", subtype="png", filename=f"{p.last}_badge.png")
+    m = parse(scrub_message_bytes(msg.as_bytes(policy=policy.default), ctx, "badge.eml"))
+    att = next(m.iter_attachments())
+    assert p.last not in att.get_filename()
+    img = Image.open(io.BytesIO(att.get_payload(decode=True))).convert("RGB")
+    assert fd.detect(np.array(img), 0.2) == []

@@ -81,15 +81,19 @@ def test_nested_message_scrubbed(synth, ctx):
     assert nested and nested[0].get_payload(0)["From"].addresses[0].domain == "scrubbed.invalid"
 
 
-def test_images_and_audio_replaced_and_listed(synth, ctx, store):
+def test_audio_replaced_and_listed_images_kept(synth, ctx, store):
     a, b = synth.person(), synth.person()
-    _, out, m = _scrub(synth.eml(a, b, image_attachment=True, audio_attachment=True), ctx)
-    assert b"\x89PNG" not in out and b"RIFF" not in out
-    notes = [p.get_content() for p in m.iter_attachments() if p.get_filename().endswith(".removed.txt")]
-    assert len(notes) == 2
+    msg = synth.eml(a, b, audio_attachment=True)
+    from fixtures.synth_images import save, text_image
+    msg.add_attachment(save(text_image([f"Patient {b.name}"]), "PNG"), maintype="image", subtype="png",
+                       filename=f"{b.first}_photo.png")
+    _, out, m = _scrub(msg, ctx)
+    assert b"RIFF" not in out
+    names = [p.get_filename() for p in m.iter_attachments()]
+    assert sum(n.endswith(".removed.txt") for n in names) == 1
+    assert any(n.endswith(".png") and b.first not in n for n in names)
     reasons = [q["reason"] for q in store.quarantined() if q["parent"] == ctx.rel]
-    assert any("voiceprint" in r for r in reasons) and any("image" in r for r in reasons)
-    assert b.first not in " ".join(q["item"] for q in store.quarantined())
+    assert any("voiceprint" in r for r in reasons)
 
 
 def test_threading_preserved(synth, ctx):
