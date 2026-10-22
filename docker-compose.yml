@@ -1,0 +1,40 @@
+# Data Frenzy Local Scrubber
+#   docker compose up          -> scrub everything in ./input
+#   docker compose run --rm tests   -> run the test suite (no network)
+services:
+  scrubber:
+    build:
+      context: .
+      dockerfile: docker/scrubber.Dockerfile
+      target: runtime
+    image: datafrenzy/local-scrubber:0.1.0
+    # HARD REQUIREMENT: no network of any kind while your data is processed.
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./input:/input:ro
+      - ./output:/output
+      - ./work:/work
+      - ./state:/state
+      - ./config:/config:ro
+    command: ["run"]
+
+  tests:
+    profiles: ["test"]
+    build:
+      context: .
+      dockerfile: docker/scrubber.Dockerfile
+      target: test
+    image: datafrenzy/local-scrubber-tests:0.1.0
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true

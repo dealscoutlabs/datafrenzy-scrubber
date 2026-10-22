@@ -1,0 +1,31 @@
+# Your settings for Data Frenzy Local Scrubber.
+#
+# Everything here is optional. Lines starting with # are comments.
+# The full list of settings (with defaults) is in
+# src/scrubber/default_config.yaml - copy a setting here to change it.
+# After changing this file, run `docker compose up` again: files affected by
+# the change are re-scrubbed automatically.
+
+# Names, IDs or words that must ALWAYS be removed (case does not matter):
+deny_list:
+  PERSON: []          # e.g. ["Dr. Snuffleupagus"]
+  ORGANIZATION: []    # e.g. ["Sunny Acres Clinic"]
+  LOCATION: []        # e.g. ["Maple Hollow"]
+  OTHER_ID: []
+
+# Large public companies / vendors that may stay (added to the built-in list):
+allowlist:
+  organizations: []   # e.g. ["Henry Schein"]
+  terms: []           # words that are never identifiers, e.g. product names
+
+# Your own ID formats (regular expressions):
+custom_patterns: []
+#  - name: clinic_patient_id
+#    entity: MEDICAL_RECORD_NUMBER
+#    regex: '\bPT-\d{6}\b'
+#    score: 0.9
+
+# Spreadsheet columns that need a specific rule, per file name:
+# tabular:
+#   column_overrides:
+#     "patients.csv": {"Favorite Color": keep, "Internal Notes": drop}
