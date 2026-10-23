@@ -7,3 +7,6 @@ __pycache__/
 /state/
 /.scratch/
 /bench/
+/.venv-mac/
+/build/
+/dist/

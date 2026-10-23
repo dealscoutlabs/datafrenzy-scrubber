@@ -6,6 +6,8 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_all
 
 ROOT = Path(SPECPATH).resolve().parents[1]
+import sys  # noqa: E402
+sys.path.insert(0, str(ROOT / "src"))  # so collect_all() can find the scrubber package's own files
 
 datas, binaries, hiddenimports = [], [], []
 for pkg in ("scrubber", "spacy", "thinc", "en_core_web_lg", "presidio_analyzer", "presidio_anonymizer",

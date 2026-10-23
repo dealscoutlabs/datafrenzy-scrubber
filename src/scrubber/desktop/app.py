@@ -61,6 +61,17 @@ def configure_bundle() -> None:
         os.environ.setdefault("TESSDATA_PREFIX", str(tess.parent / "tessdata"))
         import pytesseract
         pytesseract.pytesseract.tesseract_cmd = str(tess)
+    elif sys.platform == "darwin":
+        # Mac trial build: use Homebrew's Tesseract (brew install tesseract)
+        import shutil
+        found = shutil.which("tesseract") or next(
+            (p for p in ("/opt/homebrew/bin/tesseract", "/usr/local/bin/tesseract") if Path(p).exists()), None)
+        if found:
+            import pytesseract
+            pytesseract.pytesseract.tesseract_cmd = found
+    if sys.platform == "darwin":
+        # never fork a process that has a window open (macOS forbids it after Cocoa starts)
+        os.environ.setdefault("SCRUBBER_START_METHOD", "spawn")
     whisper = b / "models" / "whisper"
     if whisper.exists():
         os.environ.setdefault("SCRUBBER_WHISPER_DIR", str(whisper))
@@ -104,8 +115,13 @@ def network_lock() -> tuple[bool, str]:
     """(ok, explanation) - is outbound traffic blocked at the operating-system level?"""
     if os.environ.get("SCRUBBER_DEV_ALLOW_NO_LOCK"):
         return True, "Development mode: operating-system lock not checked (the in-app block is on)."
+    if sys.platform == "darwin":
+        # Trial Mac build: the in-process block is on in every process. The operating-system
+        # level block (Apple's app sandbox) needs a signed app from an Apple developer account.
+        return True, ("Mac trial build: the app blocks itself from the internet. Apple's system-level "
+                      "block comes with the signed Mac app.")
     if os.name != "nt":
-        return False, "This build of the app is for Windows. Use the Docker version on this computer."
+        return False, "This app is for Windows and Mac. Use the Docker version on this computer."
     try:
         rule = subprocess.run(["netsh", "advfirewall", "firewall", "show", "rule", f"name={FIREWALL_RULE}"],
                               capture_output=True, text=True, creationflags=0x08000000)
