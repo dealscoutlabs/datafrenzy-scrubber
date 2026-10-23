@@ -31,7 +31,9 @@ def test_secret_generated_locally_once(tmp_path):
     k1 = load_or_create_key(tmp_path)
     k2 = load_or_create_key(tmp_path)
     assert k1 == k2 and len(k1) == 32
-    assert (tmp_path / "secret.key").stat().st_mode & 0o777 == 0o600
+    import os
+    if os.name != "nt":  # Windows has no Unix permission bits; the key lives in the user's own AppData
+        assert (tmp_path / "secret.key").stat().st_mode & 0o777 == 0o600
 
 
 def test_different_secret_different_keys(tmp_path):

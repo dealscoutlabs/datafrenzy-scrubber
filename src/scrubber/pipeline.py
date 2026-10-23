@@ -121,6 +121,64 @@ def _restore_tally(raw: str | None) -> Tally:
     return t
 
 
+def make_scrubber(cfg: dict, store: Store, key: bytes) -> TextScrubber:
+    """Detector (with names harvested so far), pseudonymizer and generalizer."""
+    allow_orgs = {o.lower() for o in cfg["allowlist"]["organizations"]}
+    entries, full_names = known_entries(store.known_entities(), allow_orgs)
+    detector = Detector(cfg, entries)
+    pseudo = Pseudonymizer(key, store, cfg)
+    pseudo.set_person_aliases(full_names)
+    gen = Generalizer(int(cfg["reference_year"]), load_zip3_restricted())
+    return TextScrubber(detector, pseudo, gen)
+
+
+def start_method() -> str:
+    forced = os.environ.get("SCRUBBER_START_METHOD")
+    if forced:
+        return forced
+    return "fork" if "fork" in mp.get_all_start_methods() and os.name != "nt" else "spawn"
+
+
+def init_worker(paths: "Paths", cfg: dict) -> None:
+    """Worker set-up when processes are spawned (Windows): rebuild everything here."""
+    from . import netguard
+    netguard.install()
+    store = Store(paths.state / "state.db")
+    _W.update(cfg=cfg, store=store, paths=paths, scrubber=make_scrubber(cfg, store, load_or_create_key(paths.state)))
+
+
+def total_memory_gb() -> float | None:
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+            m = MEMORYSTATUSEX()
+            m.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
+            return m.ullTotalPhys / 2**30
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30
+    except (ValueError, OSError, AttributeError):
+        return None
+
+
+def auto_workers() -> int:
+    """One worker per core - but when workers each load their own language model
+    (Windows), leave room for about 1.5 GB per worker plus 2 GB for everything else."""
+    cores = os.cpu_count() or 1
+    if start_method() == "fork":
+        return cores
+    mem = total_memory_gb()
+    if mem is None:
+        return max(1, min(cores, 2))
+    return max(1, min(cores, int((mem - 2) // 1.5)))
+
+
 def run_job(job: tuple[str, int]) -> tuple[str, int, str]:
     rel, idx = job
     store: Store = _W["store"]
@@ -204,7 +262,7 @@ class Runner:
         self.store = Store(paths.state / "state.db")
         self.key = load_or_create_key(paths.state)
         w = workers or cfg.get("workers", "auto")
-        self.workers = (os.cpu_count() or 1) if w == "auto" else max(1, int(w))
+        self.workers = auto_workers() if w == "auto" else max(1, int(w))
         self.scrubber: TextScrubber | None = None
 
     # -- steps
@@ -242,9 +300,16 @@ class Runner:
                 shutil.rmtree(out)
             out.mkdir(parents=True)
             self.echo(f"Converting Outlook file {row['rel']} to mbox ...")
-            proc = subprocess.run(["readpst", "-r", "-q", "-o", str(out), row["src"]],
-                                  capture_output=True, text=True)
-            if proc.returncode != 0:
+            if shutil.which("readpst"):
+                ok = subprocess.run(["readpst", "-r", "-q", "-o", str(out), row["src"]],
+                                    capture_output=True, text=True).returncode == 0
+            else:  # Windows app: no readpst there; read the .pst with libpff instead
+                from .formats import pst_pff
+                try:
+                    ok = pst_pff.available() and bool(pst_pff.convert(Path(row["src"]), out))
+                except Exception:
+                    ok = False
+            if not ok:
                 self.store.update_file(row["rel"], status="quarantined",
                                        reason="Outlook file could not be read (encrypted or damaged); "
                                               "see README for converting it to mbox in Outlook")
@@ -278,13 +343,7 @@ class Runner:
             self.store.update_file(row["rel"], harvested=1)
 
     def build_scrubber(self) -> None:
-        allow_orgs = {o.lower() for o in self.cfg["allowlist"]["organizations"]}
-        entries, full_names = known_entries(self.store.known_entities(), allow_orgs)
-        detector = Detector(self.cfg, entries)
-        pseudo = Pseudonymizer(self.key, self.store, self.cfg)
-        pseudo.set_person_aliases(full_names)
-        gen = Generalizer(int(self.cfg["reference_year"]), load_zip3_restricted())
-        self.scrubber = TextScrubber(detector, pseudo, gen)
+        self.scrubber = make_scrubber(self.cfg, self.store, self.key)
 
     def assign_output_names(self) -> None:
         rows = self.store.files()
@@ -341,8 +400,16 @@ class Runner:
                 self._progress(done, total, t0)
                 self._finalize_if_ready(rel)
             return
-        ctx = mp.get_context("fork")  # children share the loaded spaCy model copy-on-write
-        with ctx.Pool(processes=min(self.workers, total)) as pool:
+        method = start_method()
+        ctx = mp.get_context(method)
+        if method == "fork":
+            # Linux/macOS: children share the loaded language model copy-on-write
+            pool = ctx.Pool(processes=min(self.workers, total))
+        else:
+            # Windows: each worker starts fresh and loads its own copy of the model
+            pool = ctx.Pool(processes=min(self.workers, total), initializer=init_worker,
+                            initargs=(self.paths, self.cfg))
+        with pool:
             for rel, _idx, _status in pool.imap_unordered(run_job, jobs, chunksize=1):
                 done += 1
                 self._progress(done, total, t0)

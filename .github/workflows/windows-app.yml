@@ -1,0 +1,73 @@
+# Builds and tests the Windows desktop app on a Windows machine, and produces
+# DataFrenzyScrubber-Setup-<version>.exe as a downloadable build artifact.
+name: windows-app
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 150
+    env:
+      PYTHONPATH: src
+      OMP_THREAD_LIMIT: "1"
+      APP_VERSION: "0.1.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Tesseract OCR and Inno Setup
+        run: choco install tesseract innosetup -y --no-progress
+
+      - name: Install Python packages and the language model
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt -r packaging/windows/requirements-windows.txt
+          pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl
+
+      - name: Run the test suite on Windows
+        shell: pwsh
+        run: |
+          $env:PATH = "C:\Program Files\Tesseract-OCR;$env:PATH"
+          $env:SCRUBBER_DATA_DIR = "$PWD\data"
+          python -m pytest tests -q -p no:cacheprovider --ignore=tests/test_recall.py
+
+      - name: Build the app (PyInstaller)
+        run: pyinstaller packaging/windows/DataFrenzyScrubber.spec --noconfirm --distpath dist --workpath build
+
+      - name: Bundle Tesseract OCR
+        shell: pwsh
+        run: Copy-Item "C:\Program Files\Tesseract-OCR" "dist\DataFrenzyScrubber\_internal\tesseract" -Recurse
+
+      - name: Self-test the packaged app (no window)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "dist\DataFrenzyScrubber\DataFrenzyScrubber.exe" `
+               -ArgumentList "--self-test","--self-test-out","$PWD\selftest.json" -Wait -PassThru
+          Get-Content selftest.json
+          if ($p.ExitCode -ne 0) { throw "self-test failed" }
+
+      # Code signing goes here once a certificate exists (Azure Trusted Signing or a
+      # traditional certificate). Unsigned installers show a Windows SmartScreen warning.
+
+      - name: Build the installer (Inno Setup)
+        shell: pwsh
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:APP_VERSION" packaging\windows\installer.iss'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DataFrenzyScrubber-Setup
+          path: packaging/windows/Output/*.exe
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selftest-result
+          path: selftest.json

@@ -45,9 +45,22 @@ def file_id(rel: str) -> str:
     return hashlib.sha256(rel.encode()).hexdigest()[:16]
 
 
-def create_app(paths: Paths, config_path: str) -> FastAPI:
+class _CurrentPaths:
+    """In the desktop app the folders can change while it runs: always use the current ones."""
+
+    def __init__(self, desktop):
+        self._desktop = desktop
+
+    def __getattr__(self, name):
+        return getattr(self._desktop.paths(), name)
+
+
+def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
+    """desktop: hooks from scrubber.desktop.app when running as the Windows/Mac app."""
     app = FastAPI(title="Data Frenzy review", docs_url=None, redoc_url=None, openapi_url=None)
     csrf = secrets.token_urlsafe(32)
+    if desktop is not None:
+        paths = _CurrentPaths(desktop)
 
     def runner() -> Runner:
         return Runner(paths, load_config(config_path), workers=1, echo=lambda *_: None)
@@ -55,7 +68,7 @@ def create_app(paths: Paths, config_path: str) -> FastAPI:
     def page(name: str, request: Request, **ctx) -> HTMLResponse:
         html = _env.get_template(name).render(
             csrf=csrf, version=__version__, reviewer=request.cookies.get("reviewer", ""),
-            msg=request.query_params.get("msg", ""), **ctx)
+            msg=request.query_params.get("msg", ""), desktop=desktop is not None, **ctx)
         return HTMLResponse(html)
 
     def back(url: str, msg: str, reviewer: str | None = None) -> RedirectResponse:
@@ -103,8 +116,16 @@ def create_app(paths: Paths, config_path: str) -> FastAPI:
         status_path = paths.work / "status.json"
         status = json.loads(status_path.read_text()) if status_path.exists() else {}
         requested = (paths.work / "requests" / "rerun.json").exists()
-        return page("index.html", request, s=s, status=status, requested=requested,
-                    pending=len(r.store.reviews("pending")), now=time.time())
+        running = status.get("state") == "running" and time.time() - status.get("updated", 0) < 600
+        app_info = None
+        if desktop is not None:
+            st = desktop.settings()
+            ok, why = desktop.lock()
+            app_info = {"input": st.input, "output": st.output, "lock_ok": ok, "lock": why,
+                        "input_ok": bool(st.input) and Path(st.input).is_dir()}
+        return page("index.html", request, s=s, status=status, requested=requested, running=running,
+                    refresh=running or requested, app=app_info, pending=len(r.store.reviews("pending")),
+                    now=time.time())
 
     @app.get("/review", response_class=HTMLResponse)
     async def review_list(request: Request):
@@ -185,10 +206,21 @@ def create_app(paths: Paths, config_path: str) -> FastAPI:
     @app.post("/rerun")
     async def rerun(csrf_token: str = Form(...)):
         check_form(csrf_token, None)
+        if desktop is not None:
+            ok, why = desktop.lock()
+            if not ok:
+                return back("/", f"Can't start: {why}")
+            if not Path(desktop.settings().input or "/nonexistent").is_dir():
+                return back("/", "Choose the folder to scrub first.")
         req = paths.work / "requests"
         req.mkdir(parents=True, exist_ok=True)
         (req / "rerun.json").write_text(json.dumps({"requested_at": time.time()}))
         return back("/", "Re-run requested. The scrubber picks it up within a few seconds.")
+
+    @app.get("/static/desktop.js")
+    async def desktop_js():
+        return Response((Path(__file__).with_name("static") / "desktop.js").read_text(),
+                        media_type="text/javascript")
 
     @app.get("/reports/{name}")
     async def reports(name: str):

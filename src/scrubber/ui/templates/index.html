@@ -1,6 +1,20 @@
 {% extends "base.html" %}
 {% block body %}
-<h1>Overview</h1>
+{% if app %}
+<h1>Scrub your data</h1>
+<div class="card">
+  <div class="label">1. Folder to scrub</div>
+  <p style="margin:4px 0 8px">{% if app.input %}<b>{{ app.input }}</b>{% else %}<span class="muted">Not chosen yet</span>{% endif %}</p>
+  <button type="button" class="secondary" data-app="choose_input">Choose folder…</button>
+  <div class="label" style="margin-top:14px">2. Where the scrubbed copy goes</div>
+  <p style="margin:4px 0 8px"><b>{{ app.output }}</b></p>
+  <button type="button" class="secondary" data-app="choose_output">Change…</button>
+  <button type="button" class="secondary" data-app="open_output" data-reload="no">Open export folder</button>
+  <div class="label" style="margin-top:14px">Internet block</div>
+  <p style="margin:4px 0" class="{{ 'ok' if app.lock_ok else 'rejected' }}">{{ app.lock }}</p>
+</div>
+{% endif %}
+<h1>{{ 'Results' if app else 'Overview' }}</h1>
 <div class="grid">
   <div class="card stat"><b>{{ s.files.get('done', 0) }}</b><span>files exported</span></div>
   <div class="card stat"><b class="{{ 'pending' if pending else '' }}">{{ pending }}</b><span>waiting for your review</span></div>
@@ -17,7 +31,11 @@
   {% if requested %}<p class="pending">A re-run has been requested and will start shortly.</p>{% endif %}
   <form method="post" action="/rerun" class="inline">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    {% if app %}
+    <button type="submit" {{ 'disabled' if running or not app.lock_ok or not app.input_ok else '' }}>{{ 'Scrubbing…' if running else ('Start scrubbing' if not status else 'Scrub again') }}</button>
+    {% else %}
     <button type="submit">Re-run the scrubber</button>
+    {% endif %}
     <span class="muted small">Use this after adding names to the deny list. Files are re-scrubbed with the new settings.</span>
   </form>
 </div>

@@ -1,0 +1,4 @@
+# Windows desktop app only (on top of ../../requirements.txt)
+pywebview==6.2.1
+pyinstaller==6.22.3
+libpff-python==20260926

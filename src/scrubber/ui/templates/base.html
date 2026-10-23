@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Scrubber Review{% endblock %}</title>
+{% if refresh %}<meta http-equiv="refresh" content="3">{% endif %}
+{% if desktop %}<script src="/static/desktop.js" defer></script>{% endif %}
 <style>
   :root { --bg:#f7f6f2; --fg:#1c1e20; --muted:#5f6368; --line:#dad7cf; --card:#ffffff; --accent:#1f5f8b; --accent-fg:#fff;
           --warn-bg:#fff4e0; --warn:#8a5200; --ok:#2f6b3a; --bad:#a3302a; --mark:#ffe28a; }
@@ -46,6 +48,8 @@
   button { font:inherit; border:0; border-radius:6px; padding:7px 14px; cursor:pointer; background:var(--accent); color:var(--accent-fg); }
   button.secondary { background:transparent; color:var(--fg); border:1px solid var(--line); }
   button.danger { background:var(--bad); color:#fff; }
+  button[disabled] { opacity:.5; cursor:default; }
+  .ok { color:var(--ok); }
   img.preview { max-width:100%; border:1px solid var(--line); border-radius:6px; background:#fff; }
   .muted { color:var(--muted); } .small { font-size:13px; }
 </style>
@@ -59,7 +63,7 @@
 <main>
 {% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
 {% block body %}{% endblock %}
-<p class="muted small" style="margin-top:40px">This screen runs only on this computer. Original files shown here are never exported. Version {{ version }}.</p>
+<p class="muted small" style="margin-top:40px">This {{ 'app' if desktop else 'screen' }} runs only on this computer. Original files shown here are never exported. Version {{ version }}.</p>
 </main>
 </body>
 </html>
