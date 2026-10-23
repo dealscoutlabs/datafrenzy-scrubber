@@ -59,6 +59,8 @@ def configure_bundle() -> None:
     tess = b / "tesseract" / ("tesseract.exe" if os.name == "nt" else "tesseract")
     if tess.exists():
         os.environ.setdefault("TESSDATA_PREFIX", str(tess.parent / "tessdata"))
+        # on PATH, not just set in this process: the scrubbing workers are separate processes
+        os.environ["PATH"] = str(tess.parent) + os.pathsep + os.environ.get("PATH", "")
         import pytesseract
         pytesseract.pytesseract.tesseract_cmd = str(tess)
     elif sys.platform == "darwin":
@@ -67,6 +69,7 @@ def configure_bundle() -> None:
         found = shutil.which("tesseract") or next(
             (p for p in ("/opt/homebrew/bin/tesseract", "/usr/local/bin/tesseract") if Path(p).exists()), None)
         if found:
+            os.environ["PATH"] = str(Path(found).parent) + os.pathsep + os.environ.get("PATH", "")
             import pytesseract
             pytesseract.pytesseract.tesseract_cmd = found
     if sys.platform == "darwin":

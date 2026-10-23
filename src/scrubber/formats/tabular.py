@@ -514,3 +514,13 @@ def process_xlsx(src: Path, dst: Path, ctx: Context) -> None:
     dst.write_bytes(out)
     if dst.read_bytes() != out:
         ctx.issue(f"{ctx.out_rel}: output file differs from what was written")
+
+
+def process_ods(src: Path, dst: Path, ctx: Context) -> None:
+    """OpenDocument spreadsheet: read into a workbook, scrubbed and written as .xlsx."""
+    from . import ods
+    out = scrub_xlsx_bytes(ods.to_xlsx_bytes(src), ctx, ctx.out_rel)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_bytes(out)
+    if dst.read_bytes() != out:
+        ctx.issue(f"{ctx.out_rel}: output file differs from what was written")

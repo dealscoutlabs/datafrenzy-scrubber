@@ -37,10 +37,10 @@ from .transform.scrub import Tally, TextScrubber
 log = logging.getLogger("scrubber")
 
 SUPPORTED = {".eml": "eml", ".mbox": "mbox", ".mbx": "mbox", ".pst": "pst", ".ost": "pst", ".csv": "csv",
-             ".tsv": "csv", ".xlsx": "xlsx", ".txt": "text", ".text": "text", ".md": "text", ".log": "text",
+             ".tsv": "csv", ".xlsx": "xlsx", ".ods": "ods", ".txt": "text", ".text": "text", ".md": "text", ".log": "text",
              ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl", ".zip": "zip", ".docx": "docx", ".pdf": "pdf",
              ".dcm": "dicom", ".dicom": "dicom", **{e: "image" for e in IMAGE_EXT}}
-HANDLED = {"eml", "mbox", "csv", "xlsx", "text", "json", "jsonl", "zip", "docx", "pdf", "image", "dicom", "media"}
+HANDLED = {"eml", "mbox", "csv", "xlsx", "ods", "text", "json", "jsonl", "zip", "docx", "pdf", "image", "dicom", "media"}
 MEDIA_REASON = "audio/video contains voiceprints (biometric identifier) - never exported"
 NO_WHISPER = ("audio/video contains voiceprints (biometric identifier) - never exported; transcription is "
               "turned on but this install has no Whisper model (rebuild with WITH_WHISPER=1)")
@@ -208,6 +208,8 @@ def run_job(job: tuple[str, int]) -> tuple[str, int, str]:
                                     lambda n, off: store.checkpoint(rel, idx, n, off, ctx.tally.to_dict()))
             elif f["kind"] == "xlsx":
                 tabular.process_xlsx(src, dst, ctx)
+            elif f["kind"] == "ods":
+                tabular.process_ods(src, dst, ctx)
             elif f["kind"] == "text":
                 text.process_text(src, dst, ctx)
             elif f["kind"] in ("json", "jsonl"):
@@ -333,7 +335,7 @@ class Runner:
 
     def harvest(self) -> None:
         todo = [r for r in self.store.files("pending")
-                if r["kind"] in ("eml", "mbox", "csv", "xlsx", "zip", "json") and not r["harvested"]]
+                if r["kind"] in ("eml", "mbox", "csv", "xlsx", "ods", "zip", "json") and not r["harvested"]]
         if todo:
             self.echo(f"Collecting names from email headers and name columns ({len(todo):,} files) ...")
         for row in todo:
@@ -357,6 +359,8 @@ class Runner:
             out = "/".join(parts)
             if r["kind"] == "pst":
                 out += ".mbox"
+            if r["kind"] == "ods":
+                out = out[: -len(".ods")] + ".xlsx" if out.lower().endswith(".ods") else out + ".xlsx"
             if r["kind"] == "media":
                 out += audio.TRANSCRIPT_SUFFIX  # only the scrubbed transcript is ever exported
             base, n = out, 2

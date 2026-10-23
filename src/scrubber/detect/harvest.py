@@ -99,9 +99,13 @@ def harvest_file(kind: str, path: Path) -> list[tuple[str, str, str, str]]:
                 name = info.filename.rsplit("/", 1)[-1]
                 if name in ("users.json", "org_users.json") and info.file_size <= 256 << 20:
                     rows += _harvest_json(json.loads(z.read(info).decode("utf-8-sig", errors="replace")), "slack")
-    elif kind == "xlsx":
+    elif kind in ("xlsx", "ods"):
         from openpyxl import load_workbook
-        wb = load_workbook(path, read_only=True, data_only=True)
+        if kind == "ods":
+            from ..formats import ods
+            wb = ods.to_workbook(path)
+        else:
+            wb = load_workbook(path, read_only=True, data_only=True)
         try:
             for ws in wb.worksheets:
                 it = ws.iter_rows(values_only=True)

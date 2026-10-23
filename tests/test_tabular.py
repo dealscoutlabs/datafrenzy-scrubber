@@ -147,3 +147,49 @@ def test_discharge_report_columns(synth, ctx):
     out2 = load_workbook(io.BytesIO(scrub_xlsx_bytes(buf2.getvalue(), ctx, "other.xlsx"))).active
     assert out2["A2"].value == f"Patient {int(ctx.pseudo.token('PERSON', people[3].name).split('_')[1])}"
     assert out2["A2"].value in {r[0] for r in rows}
+
+
+def _ods(path, rows):
+    """A minimal OpenDocument spreadsheet, as LibreOffice writes it."""
+    import zipfile
+    from xml.sax.saxutils import escape
+
+    def cell(v):
+        if isinstance(v, int):
+            return f'<table:table-cell office:value-type="float" office:value="{v}"><text:p>{v}</text:p></table:table-cell>'
+        if hasattr(v, "isoformat"):
+            return (f'<table:table-cell office:value-type="date" office:date-value="{v.isoformat()}">'
+                    f'<text:p>{v}</text:p></table:table-cell>')
+        if v is None:
+            return '<table:table-cell table:number-columns-repeated="3"/>'
+        return f'<table:table-cell office:value-type="string"><text:p>{escape(v)}</text:p></table:table-cell>'
+    body = "".join(f"<table:table-row>{''.join(cell(v) for v in r)}</table:table-row>" for r in rows)
+    content = ('<?xml version="1.0" encoding="UTF-8"?><office:document-content '
+               'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+               'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" '
+               'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:spreadsheet>'
+               f'<table:table table:name="ADL">{body}'
+               '<table:table-row table:number-rows-repeated="1048000"><table:table-cell '
+               'table:number-columns-repeated="1024"/></table:table-row></table:table>'
+               '</office:spreadsheet></office:body></office:document-content>')
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("mimetype", "application/vnd.oasis.opendocument.spreadsheet")
+        z.writestr("content.xml", content)
+
+
+def test_ods_is_scrubbed_into_xlsx(workspace, synth, run_pipeline):
+    import datetime as dt
+    people = [synth.person() for _ in range(6)]
+    rows = [["Resident Name", "Date", "Bathing", "Notes"]]
+    rows += [[p.name, dt.date(2026, 9, 1 + i), "Independent", f"Called {p.phone}"] for i, p in enumerate(people)]
+    _ods(workspace.input / "adl_flowsheet.ods", rows)
+    runner, summary = run_pipeline(workspace)
+    assert summary["files"]["done"] == 1, runner.store.files()
+    (out,) = list(workspace.released.rglob("*.xlsx"))
+    assert out.name == "adl_flowsheet.xlsx"
+    ws = load_workbook(out).worksheets[0]
+    assert ws.title == "ADL" and ws.max_row == 7
+    flat = " ".join(str(c.value) for row in ws.iter_rows() for c in row if c.value is not None)
+    assert "Independent" in flat
+    for p in people:
+        assert p.last not in flat and p.phone not in flat

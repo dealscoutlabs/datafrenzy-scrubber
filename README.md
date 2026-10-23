@@ -9,7 +9,7 @@ This program removes patient and personal information from your business files *
 
 > **Works with:**
 > - email (`.eml`, `.mbox`, Outlook `.pst`)
-> - spreadsheets (`.csv`, `.xlsx`)
+> - spreadsheets (`.csv`, `.xlsx`, `.ods` — scrubbed copies of `.ods` are saved as `.xlsx`)
 > - Slack workspace exports (`.zip`)
 > - Word documents (`.docx`) and PDFs, including scanned PDFs
 > - photos and images (`.jpg`, `.png`, `.tif`, `.heic` and more)

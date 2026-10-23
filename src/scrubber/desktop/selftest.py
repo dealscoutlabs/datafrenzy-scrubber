@@ -23,6 +23,20 @@ SECRETS = ["Marisol", "Fenwick", "Desmond", "Okafor", "00483921", "555-0172", "5
            "Willow Creek", "Kevinberg", "97031", "March 14"]
 
 
+def _scan(path: Path) -> None:
+    """A picture of a typed note, like a scanned page."""
+    from PIL import Image, ImageDraw, ImageFont
+    img = Image.new("RGB", (1400, 220), "white")
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.load_default(size=40)
+    except TypeError:
+        font = ImageFont.load_default()
+    draw.text((40, 40), "Patient: Marisol Fenwick", fill="black", font=font)
+    draw.text((40, 120), "Phone (415) 555-0172", fill="black", font=font)
+    img.save(path)
+
+
 def run(out_path: str | None = None) -> int:
     from ..config import load_config
     from ..pipeline import Paths, Runner
@@ -35,6 +49,7 @@ def run(out_path: str | None = None) -> int:
         (paths.input / "note.txt").write_text(NOTE)
         (paths.input / "patients.csv").write_text(CSV, newline="")
         (paths.input / "visit.eml").write_text(EML, newline="")
+        _scan(paths.input / "scan.png")  # needs the bundled OCR engine
         runner = Runner(paths, load_config(), workers=2, echo=lambda *_: None)
         summary = runner.run()
         runner.store.close()  # Windows won't delete an open database file
@@ -43,9 +58,12 @@ def run(out_path: str | None = None) -> int:
             if f.is_file():
                 text = f.read_bytes().decode("utf-8", "replace")
                 leaks += [f"{s} in {f.name}" for s in SECRETS if re.search(re.escape(s), text)]
+        scan = runner.store.file("scan.png")
+        ocr = {"status": scan["status"] if scan else "missing", "reason": (scan["reason"] or "") if scan else ""}
         lock_ok, lock = network_lock()
-        result = {"exported": summary["files"].get("done", 0), "expected": 3, "leaks": leaks,
-                  "network_lock": lock, "ok": summary["files"].get("done", 0) == 3 and not leaks}
+        exported = summary["files"].get("done", 0)
+        result = {"exported": exported, "expected": 4, "leaks": leaks, "ocr": ocr, "network_lock": lock,
+                  "ok": exported >= 3 and ocr["status"] in ("done", "review") and not leaks}
     text = json.dumps(result, indent=2)
     if out_path:
         Path(out_path).write_text(text)

@@ -11,7 +11,8 @@ python3 packaging/macos/bundle_tesseract.py "$APP/Contents/Frameworks/tesseract"
 # Re-sign the whole app after adding files (ad-hoc until a Developer ID certificate exists;
 # notarization goes here too).
 codesign --force --deep -s - "$APP"
-"$APP/Contents/MacOS/DataFrenzyScrubber" --self-test --self-test-out selftest-mac.json >/dev/null 2>&1 || {
+# A Mac without Homebrew: only system folders on PATH, so the bundled OCR engine must be used
+env PATH=/usr/bin:/bin:/usr/sbin:/sbin "$APP/Contents/MacOS/DataFrenzyScrubber" --self-test --self-test-out selftest-mac.json >/dev/null 2>&1 || {
   cat selftest-mac.json 2>/dev/null; echo "self-test failed"; exit 1; }
 cat selftest-mac.json
 ARCH=$(uname -m)
