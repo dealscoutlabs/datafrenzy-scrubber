@@ -37,6 +37,7 @@ class Tally:
         self.issues: list[str] = []
         self.flags: list[dict] = []    # structured issues for the review screen (local only)
         self.samples: list[dict] = []  # before/after text pairs for the review screen (local only)
+        self.held: list[dict] = []     # single messages held for review (mailboxes)
         self._seen = 0
         self._rng = random.Random(0)
 
@@ -58,11 +59,13 @@ class Tally:
         self.messages += other.messages
         self.issues += other.issues
         self.flags += other.flags
+        self.held += other.held
         self.samples = (self.samples + other.samples)[: self.SAMPLE_CAP * 2]
 
     def to_dict(self) -> dict:
         return {"counts": dict(self.counts), "years": sorted(self.years), "records": self.records,
-                "messages": self.messages, "issues": self.issues, "flags": self.flags, "samples": self.samples}
+                "messages": self.messages, "issues": self.issues, "flags": self.flags, "samples": self.samples,
+                "held": self.held}
 
 
 class TextScrubber:
@@ -180,7 +183,14 @@ class TextScrubber:
         if not dot:
             stem, ext = name, ""
         detect = re.sub(r"[_]", " ", stem)
-        out = self.scrub(stem, tally, detect_text=detect).text
+        findings = [f for f in self.detector.detect(detect)
+                    # the model's guesses on lowercase file-name fragments ("scan11") are unreliable;
+                    # name lists, harvested names and ID patterns still apply
+                    if not (f.source == "SpacyRecognizer" and f.etype in ("PERSON", "ORGANIZATION", "LOCATION")
+                            and not re.search(r"[A-Z]", detect[f.start:f.end]))]
+        for f in findings:
+            f.text = stem[f.start:f.end]
+        out = self._apply(stem, findings, tally).text
         return f"{out}.{ext}" if dot else out
 
     def years_in(self, text: str) -> set[int]:

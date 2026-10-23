@@ -60,6 +60,23 @@ class Context:
         for r in _risk(self.cfg).check(text):
             self.issue(f"{where}: context risk - {r.rule}", "context-risk", _snippet(text, r.start, r.end))
 
+    def residual_many(self, texts: list[str], where: str) -> None:
+        """Like residual(), but each text (a spreadsheet cell) is checked on its own, the
+        way it was scrubbed - reading unrelated cells together invents context."""
+        texts = [t for t in texts if t and t.strip()]
+        if not texts:
+            return
+        threshold = float(self.cfg["verification"]["residual_threshold"])
+        for text, findings in zip(texts, self.scrubber.detector.detect_many(texts)):
+            for f in findings:
+                if f.score >= threshold:
+                    self.issue(f"{where}: residual {f.etype} (score {f.score:.2f}) after scrubbing", "residual",
+                               _snippet(text, f.start, f.end))
+        risk = _risk(self.cfg)
+        for text in texts:
+            for r in risk.check(text):
+                self.issue(f"{where}: context risk - {r.rule}", "context-risk", _snippet(text, r.start, r.end))
+
 
 _RISK: dict = {}
 

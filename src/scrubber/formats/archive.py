@@ -182,7 +182,8 @@ def _names(text: str) -> list[dict]:
 def _check(before, out, ctx: Context, where: str) -> None:
     if shape(out) != before:
         ctx.issue(f"{where}: JSON structure changed during scrubbing")
-    texts = strings(out)
+    from .tabular import needs_check
+    texts = [t for t in strings(out) if needs_check(t)]
     for i in range(0, len(texts), 2000):
         ctx.residual("\n\n".join(texts[i:i + 2000]), where)
 

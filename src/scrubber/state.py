@@ -162,6 +162,11 @@ class Store:
             c.execute(f"UPDATE files SET {sets} WHERE rel=?", (*fields.values(), rel))
             c.execute("DELETE FROM shards WHERE rel=?", (rel,))
             c.execute("DELETE FROM quarantine WHERE parent=?", (rel,))
+            # messages held from this mailbox in an earlier run are re-decided after re-scrubbing
+            held = [r[0] for r in c.execute("SELECT rel FROM files WHERE parent=? AND kind='held-message'", (rel,))]
+            for h in held:
+                c.execute("DELETE FROM review WHERE rel=? AND status='pending'", (h,))
+                c.execute("DELETE FROM files WHERE rel=?", (h,))
             c.execute("DELETE FROM review WHERE rel=? AND status='pending'", (rel,))
 
     def update_file(self, rel: str, **fields) -> None:

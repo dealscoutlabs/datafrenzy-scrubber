@@ -100,7 +100,11 @@ class JsonScrubber:
             self.channel_names[name] = "mpdm-" + "--".join(self.token("OTHER_ID", u).lower() for u in users) \
                 + f"-{m.group(2)}"
         if name not in self.channel_names:
-            self.channel_names[name] = self.ctx.scrubber.scrub_name(name.replace("-", " "), self.ctx.tally).replace(" ", "-")
+            # channel names are lowercase by convention; detect on a title-cased copy so the
+            # language model recognises "cruz-care-team" as containing a surname
+            spaced = name.replace("-", " ").replace("_", " ")
+            res = self.ctx.scrubber.scrub(spaced, self.ctx.tally, detect_text=spaced.title())
+            self.channel_names[name] = res.text.replace(" ", "-")
         return self.channel_names[name]
 
     def slack_text(self, text: str) -> str:
@@ -296,7 +300,8 @@ def verify_json(original_shape: Any, out_text: str, ctx: Context, item: str) -> 
         return
     if shape(obj) != original_shape:
         ctx.issue(f"{item}: JSON structure changed during scrubbing")
-    texts = strings(obj)
+    from .tabular import needs_check
+    texts = [t for t in strings(obj) if needs_check(t)]
     for i in range(0, len(texts), 2000):
         ctx.residual("\n\n".join(texts[i:i + 2000]), item)
 

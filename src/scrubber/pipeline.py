@@ -117,6 +117,7 @@ def _restore_tally(raw: str | None) -> Tally:
         t.issues = list(d.get("issues", []))
         t.flags = list(d.get("flags", []))
         t.samples = list(d.get("samples", []))
+        t.held = list(d.get("held", []))
     return t
 
 
@@ -390,6 +391,7 @@ class Runner:
             ctx = Context(cfg=self.cfg, scrubber=self.scrubber, store=self.store, rel=rel, out_rel=f["out_rel"])
             mbox.verify_mbox(staged, tally.messages, ctx)
             tally.issues += ctx.tally.issues
+            self._register_held(f, tally.held)
             self._cleanup_parts(rel)
         fields = dict(counts=dict(tally.counts), years=sorted(tally.years), records=tally.records,
                       messages=tally.messages, verify=tally.issues)
@@ -400,6 +402,21 @@ class Runner:
         else:
             self._release(rel, f["out_rel"])
             self.store.update_file(rel, status="done", reason=None, **fields)
+
+    def _register_held(self, f, held: list[dict]) -> None:
+        """Each message held from a mailbox becomes its own review item. Approving it
+        appends it to the exported mailbox; rejecting it keeps it out for good."""
+        for h in held:
+            rel = f"{f['rel']}::message {h['name']}"
+            out_rel = f"{f['out_rel']}.held/message-{h['name']}.eml"
+            staged = self.paths.staging / out_rel
+            staged.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(h["path"], staged)
+            size = staged.stat().st_size
+            self.store.upsert_file(rel, f["src"], "held-message", size, f"held:{size}", self.chash, parent=f["rel"])
+            self.store.update_file(rel, status="review", reason="needs human review", out_rel=out_rel, records=1,
+                                   messages=1, verify=h["issues"])
+            self.store.add_review(rel, h["issues"], h["flags"])
 
     def _release(self, rel: str, out_rel: str) -> None:
         src = self.paths.staging / out_rel
@@ -425,9 +442,27 @@ class Runner:
         f = self.store.file(rel)
         if f is None or f["status"] != "review":
             raise ValueError(f"{rel} is not waiting for review")
-        self._release(rel, f["out_rel"])
+        if f["kind"] == "held-message":
+            self._append_to_mailbox(f)
+        else:
+            self._release(rel, f["out_rel"])
         self.store.decide_review(rel, "approved", by, note)
         self.store.update_file(rel, status="done", reason="approved after human review")
+
+    def _append_to_mailbox(self, f) -> None:
+        parent = self.store.file(f["parent"])
+        base = self.paths.released if parent["status"] == "done" else self.paths.staging
+        box = base / parent["out_rel"]
+        staged = self.paths.staging / f["out_rel"]
+        data = staged.read_bytes()
+        body = mbox.escape_from(data)
+        with open(box, "ab") as out:
+            out.write(mbox.from_line(data) + body + (b"" if body.endswith(b"\n") else b"\n") + b"\n")
+        staged.unlink()
+        try:
+            staged.parent.rmdir()
+        except OSError:
+            pass
 
     def reject(self, rel: str, by: str, note: str = "") -> None:
         f = self.store.file(rel)

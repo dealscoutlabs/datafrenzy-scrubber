@@ -115,10 +115,24 @@ def process_shard(src: Path, part: Path, ctx: Context, shard: int, start: int, s
             if n < progress:
                 continue
             item = f"{ctx.out_rel} message {shard}.{n + 1}"
+            issues_before, flags_before = len(ctx.tally.issues), len(ctx.tally.flags)
             try:
                 scrubbed = scrub_message_bytes(raw, ctx, item, linesep="\n")
             except Exception as exc:
-                ctx.issue(f"{item}: could not be processed ({type(exc).__name__}); left out of the output")
+                ctx.quarantine(item, f"message could not be processed ({type(exc).__name__}) - not exported")
+                continue
+            if len(ctx.tally.issues) > issues_before:
+                # Only this message needs a human look: hold it on its own and keep the
+                # rest of the mailbox moving.
+                held = part.parent / f"held-{shard:05d}-{n + 1:07d}.eml"
+                held.write_bytes(scrubbed)
+                ctx.tally.held.append({"name": f"{shard}.{n + 1}", "path": str(held),
+                                       "issues": ctx.tally.issues[issues_before:],
+                                       "flags": ctx.tally.flags[flags_before:]})
+                del ctx.tally.issues[issues_before:]
+                del ctx.tally.flags[flags_before:]
+                ctx.tally.messages -= 1
+                ctx.tally.records -= 1
                 continue
             body = escape_from(scrubbed)
             if not body.endswith(b"\n"):

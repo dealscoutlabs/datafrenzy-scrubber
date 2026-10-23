@@ -14,6 +14,7 @@ US_STATES = {
     "UT": "Utah", "VT": "Vermont", "VA": "Virginia", "WA": "Washington", "WV": "West Virginia",
     "WI": "Wisconsin", "WY": "Wyoming", "DC": "District of Columbia", "PR": "Puerto Rico", "GU": "Guam",
     "VI": "Virgin Islands", "AS": "American Samoa", "MP": "Northern Mariana Islands",
+    "FM": "Federated States of Micronesia", "MH": "Marshall Islands", "PW": "Palau",
     "AA": "Armed Forces Americas", "AE": "Armed Forces Europe", "AP": "Armed Forces Pacific",
 }
 
@@ -76,7 +77,18 @@ PLACE_PREFIX = (r"\b(?:New|North|South|East|West|Port|Lake|Fort|Ft\.|Mount|Mt\.|
 PLACE_SUFFIX = (r"(?i:\b(?:in|at|from|to|near|visiting|outside|around|toward|towards|via|lives|living|moved|"
                 r"based|located|resident|residing)[ \t]+(?:in[ \t]+|of[ \t]+)?)"
                 r"(?P<value>[A-Z][a-z]+(?:ville|burgh|burg|borough|town|ton|field|mouth|port|view|side|haven|berg|"
-                r"chester|shire|stad|bury|ford|land|wood|dale|mont|ridge|brook|crest|furt))\b")
+                r"chester|shire|stad|bury|ford|land|wood|dale|mont|ridge|brook|crest|furt|fort|haven))\b")
+
+# "Munozshire, XX 98085": a capitalized place, a two-letter code and a ZIP - a city, whatever the code.
+CITY_CODE_ZIP = (r"(?P<city>[A-Z][A-Za-z.'-]+(?:[ \t]+[A-Z][A-Za-z.'-]+){0,3}),[ \t]*[A-Z]{2}[ \t]+"
+                 r"(?P<zip>\d{5}(?:-\d{4})?)(?![\w-])")
+
+# Firms named after people: "Casey, Gray and Duncan", "Lopez and Sons", "Knight LLC", "Peterson PLC".
+FIRM_NAMES = (r"\b[A-Z][a-z]+(?:-[A-Z][a-z]+)?(?:,[ \t]+[A-Z][a-z]+(?:-[A-Z][a-z]+)?)*,?[ \t]+(?:and|&)[ \t]+"
+              r"[A-Z][a-z]+(?:-[A-Z][a-z]+)?\b(?![ \t]+[A-Z][a-z])")  # not "… and Jordan Duarte" (two people)
+FIRM_SUFFIX = (r"\b(?:[A-Z][\w'&.-]*[ \t]+){1,4}(?:LLC|L\.L\.C\.|Inc|Incorporated|PLC|Ltd|Limited|LLP|PLLC|PC|"
+               r"P\.C\.|Corp|Corporation|Co|Company|Group|Associates|Partners|Brothers|Bros)\b\.?")
+HYPHEN_SURNAMES = r"\b[A-Z][a-z]+-[A-Z][a-z]+\b"
 
 LABELED_ZIP = r"(?i:\b(?:zip|zip ?code|postal(?: ?code)?|post ?code)\b)\s*[:#]?\s*(?P<value>\d{5}(?:-\d{4})?)(?!\d)"
 STATE_ZIP = rf"\b(?:{STATE_ABBR})\s+(?P<value>\d{{5}}(?:-\d{{4}})?)(?![\d-])"
@@ -107,6 +119,9 @@ AGE_PATTERNS = [
     r"(?i)\b(?:in\s+(?:his|her|their)\s+)(?P<value>9\d|1[01]\d)s\b",
 ]
 
+# Bare domains ("acme-health.com/portal"): common endings only; "http..."/"www..." links use URL below.
+BARE_DOMAIN = (r"(?i)(?<![\w@.-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:com|org|net|edu|gov|mil|us|io|co|info|"
+               r"biz|health|care|clinic|med|me|ly|ai|app|dev|uk|ca|au|de|fr|in)(?![\w-])(?:/[^\s<>\"']*)?")
 URL = r"(?i)\b(?:https?://|ftp://|www\.)[^\s<>\"'()\[\]]*[^\s<>\"'()\[\].,;:!?]"
 
 PHONE = (r"(?<![\w+])(?:(?:\+?1|001)[\s.-]?)?(?:\(\d{3}\)\s?|\d{3}[\s.-]?)\d{3}[\s.-]?\d{4}"

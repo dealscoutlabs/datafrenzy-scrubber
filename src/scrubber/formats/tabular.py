@@ -154,17 +154,28 @@ def scrub_header_row(headers: list, ctx: Context) -> list:
     return out
 
 
+_PUNCT = re.compile(r"[\s.,;:/()\[\]\-+$%#|*'\"]")
+
+
+def needs_check(value: str) -> bool:
+    """Does a scrubbed cell need the full re-detection? Cells holding only our tokens,
+    punctuation or a short number (year, amount, count) have nothing left to find;
+    anything with letters or a longer number (a phone, an ID) is checked."""
+    from ..detect.engine import ARTIFACT_RE
+    rest = _PUNCT.sub("", ARTIFACT_RE.sub(" ", value))
+    return bool(rest) and not re.fullmatch(r"\d{1,6}", rest)
+
+
 def _residual_rows(rows: list[list], ctx: Context, where: str, buf: list[str]) -> None:
     for row in rows:
-        buf.extend(str(v) for v in row if v not in (None, ""))
+        buf.extend(str(v) for v in row if v not in (None, "") and needs_check(str(v)))
     if sum(len(x) for x in buf) >= RESIDUAL_CHARS:
         flush_residual(buf, ctx, where)
 
 
 def flush_residual(buf: list[str], ctx: Context, where: str) -> None:
     if buf:
-        # one cell per paragraph: keeps the NER model from reading across cells
-        ctx.residual("\n\n".join(buf), where)
+        ctx.residual_many(buf, where)
         buf.clear()
 
 

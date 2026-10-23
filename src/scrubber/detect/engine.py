@@ -3,6 +3,7 @@ custom recognizers), followed by Safe Harbor-specific post-processing."""
 
 from __future__ import annotations
 
+import bisect
 import logging
 import re
 from dataclasses import dataclass
@@ -22,7 +23,7 @@ from .recognizers import KnownEntityRecognizer, build_custom_recognizers
 log = logging.getLogger(__name__)
 
 SPACY_MODEL = "en_core_web_lg"
-MAX_CHUNK = 100_000
+MAX_CHUNK = 20_000  # smaller pieces keep per-piece work small; split at line breaks
 
 # Presidio entity names -> our Safe Harbor entity types. None = ignore.
 ENTITY_MAP = {
@@ -33,7 +34,7 @@ ENTITY_MAP = {
 }
 KEEP_BUILTINS = {"CreditCardRecognizer", "UsItinRecognizer", "CryptoRecognizer", "EmailRecognizer",
                  "IbanRecognizer", "IpRecognizer", "MedicalLicenseRecognizer", "MacAddressRecognizer",
-                 "PhoneRecognizer", "UrlRecognizer", "SpacyRecognizer"}
+                 "PhoneRecognizer", "SpacyRecognizer"}  # URLs: our own recognizers (Presidio's is slow on long text)
 
 # Our own output: never re-detected (keeps re-runs and verification clean).
 ARTIFACT_RE = re.compile(
@@ -62,11 +63,14 @@ class Finding:
 
 
 class _SpacyEngine(SpacyNlpEngine):
-    """Loads the bundled model without the dependency parser (not needed by
-    Presidio, ~30% faster) and never attempts a download."""
+    """Loads the bundled model (entity recognizer only) and never attempts a download."""
 
     def load(self) -> None:
-        self.nlp = {"en": spacy.load(SPACY_MODEL, exclude=["parser"])}
+        # Only the entity recognizer is needed: in en_core_web_lg it has its own
+        # embedding layer, so dropping the tagger/parser/lemmatizer gives identical
+        # entities about a third faster.
+        self.nlp = {"en": spacy.load(SPACY_MODEL, exclude=["tok2vec", "tagger", "parser", "attribute_ruler",
+                                                          "lemmatizer", "senter"])}
 
 
 def _ner_config() -> NerModelConfiguration:
@@ -99,6 +103,11 @@ class Detector:
         registry = RecognizerRegistry(supported_languages=["en"])
         registry.load_predefined_recognizers(languages=["en"], nlp_engine=self.nlp_engine)
         registry.recognizers = [r for r in registry.recognizers if type(r).__name__ in KEEP_BUILTINS]
+        # phone numbers: North American formats only (the international matcher is slow
+        # and our own US regex runs as well)
+        from presidio_analyzer.predefined_recognizers import PhoneRecognizer
+        registry.recognizers = [r for r in registry.recognizers if not isinstance(r, PhoneRecognizer)]
+        registry.add_recognizer(PhoneRecognizer(supported_regions=("US", "CA")))
 
         first = load_name_list("census_first_names.txt")
         last = load_name_list("census_surnames.txt")
@@ -122,9 +131,20 @@ class Detector:
             return []
         out: list[Finding] = []
         for offset, chunk in _chunks(text):
-            results = self.analyzer.analyze(chunk, language="en")
-            out += self._post(chunk, results, offset, threshold_floor)
+            artifacts = self.nlp_engine.process_text(chunk, "en")
+            out += self._post(chunk, self._run_recognizers(chunk, artifacts), offset, threshold_floor)
         return out
+
+    def _run_recognizers(self, text: str, artifacts) -> list:
+        """Run every Presidio recognizer in the registry. Presidio's context booster and
+        duplicate removal are skipped: both grow quadratically with the number of findings,
+        and the duplicate removal discards a precise match inside a longer model span
+        (a city inside "Greenfort, MA 18034"). Overlaps are resolved in _resolve()."""
+        results = []
+        for rec in self.analyzer.registry.recognizers:
+            found = rec.analyze(text=text, entities=rec.supported_entities, nlp_artifacts=artifacts)
+            results += found or []
+        return results
 
     def detect_many(self, texts: list[str], threshold_floor: float | None = None) -> list[list[Finding]]:
         out: list[list[Finding] | None] = [None] * len(texts)
@@ -132,8 +152,7 @@ class Detector:
         if batch_idx:
             arts = self.nlp_engine.process_batch([texts[i] for i in batch_idx], language="en", batch_size=64)
             for i, (_, artifacts) in zip(batch_idx, arts):
-                results = self.analyzer.analyze(texts[i], language="en", nlp_artifacts=artifacts)
-                out[i] = self._post(texts[i], results, 0, threshold_floor)
+                out[i] = self._post(texts[i], self._run_recognizers(texts[i], artifacts), 0, threshold_floor)
         for i, t in enumerate(texts):
             if out[i] is None:
                 out[i] = self.detect(t, threshold_floor) if t and t.strip() else []
@@ -194,7 +213,8 @@ class Detector:
             if r.score < threshold:
                 continue
             found.append(Finding(start, end, etype, r.score, span, source))
-        found = [f for f in found if not _overlaps_artifact(text, f)
+        artifacts = [(m.start(), m.end()) for m in ARTIFACT_RE.finditer(text)]
+        found = [f for f in found if not _overlaps_artifact(text, f, artifacts)
                  and not (f.source == "SpacyRecognizer" and f.etype in NAMEISH and not self._meaningful(f.text))]
         found = _resolve(found)
         for f in found:
@@ -275,41 +295,63 @@ def _chunks(text: str):
         pos = end
 
 
-def _overlaps_artifact(text: str, f: Finding) -> bool:
-    lo, hi = max(0, f.start - 40), min(len(text), f.end + 40)
-    for m in ARTIFACT_RE.finditer(text, lo, hi):
-        if m.start() < f.end and f.start < m.end():
-            # an artifact inside a longer real finding (e.g. "PERSON_0001 Smith") is fine to keep scrubbing
-            residual = (text[f.start:m.start()] + text[m.end():f.end]).strip(" .,_-")
-            if not re.search(r"[A-Za-z0-9]{2}", residual):
-                return True
-            if f.etype in ("OTHER_ID", "DATE", "ORGANIZATION", "LOCATION"):
-                return True
+def _overlaps_artifact(text: str, f: Finding, artifacts: list[tuple[int, int]]) -> bool:
+    """artifacts: sorted (start, end) spans of our own tokens in text."""
+    k = bisect.bisect_left(artifacts, (f.start, -1))
+    for a, b in artifacts[max(0, k - 1):]:
+        if a >= f.end:
+            break
+        if b <= f.start:
+            continue
+        # an artifact inside a longer real finding (e.g. "PERSON_0001 Smith") is fine to keep scrubbing
+        residual = (text[f.start:a] + text[b:f.end]).strip(" .,_-")
+        if not re.search(r"[A-Za-z0-9]{2}", residual):
+            return True
+        if f.etype in ("OTHER_ID", "DATE", "ORGANIZATION", "LOCATION"):
+            return True
     return False
 
 
 def _resolve(found: list[Finding]) -> list[Finding]:
     """Choose non-overlapping findings: longest span first, then score, then type priority.
-    A spaCy span that contains a more precise regex finding of the same kind loses to it."""
+    A model (spaCy) span loses to a more precise regex finding of the same date/place kind
+    inside it, and to any number/contact finding it overlaps. Sorted lookups keep this
+    near-linear on long texts with thousands of findings."""
     def kind(e):
         return "DATE" if e in ("DATE", "DATE_BIRTH") else e
-    precise = [f for f in found if f.source != "SpacyRecognizer"]
+    precise = sorted((f for f in found if f.source != "SpacyRecognizer"), key=lambda f: f.start)
+    starts = [p.start for p in precise]
+    longest = max((p.end - p.start for p in precise), default=0)
     keep = []
     for f in found:
-        if f.source == "SpacyRecognizer" and any(
-                # a date/place regex inside a looser NER date/place span is more precise
-                # (names are not: "Angela Smith" must not shrink to a known "Smith")
-                (kind(f.etype) in ("DATE", "LOCATION") and p.start >= f.start and p.end <= f.end
-                 and kind(p.etype) == kind(f.etype) and (p.end - p.start) < (f.end - f.start))
-                # an NER name span swallowing a number/date/contact finding: the precise one wins
-                or (p.etype not in NAMEISH and p.start < f.end and f.start < p.end)
-                for p in precise):
-            continue
+        if f.source == "SpacyRecognizer":
+            beaten = False
+            for p in precise[bisect.bisect_left(starts, f.start - longest):]:
+                if p.start >= f.end:
+                    break
+                if p.end <= f.start:
+                    continue
+                inside = p.start >= f.start and p.end <= f.end and (p.end - p.start) < (f.end - f.start)
+                if (kind(f.etype) in ("DATE", "LOCATION") and inside and kind(p.etype) == kind(f.etype)) \
+                        or p.etype not in NAMEISH:
+                    beaten = True
+                    break
+            if beaten:
+                continue
         keep.append(f)
+    # a firm-name match that cuts through a person's name ("Jennifer [Duarte and Jordan]") is wrong
+    people = [f for f in keep if f.etype == "PERSON"]
+    keep = [f for f in keep if f.source != "firm_names" or not any(
+        p.start < f.end and f.start < p.end and not (p.start >= f.start and p.end <= f.end) for p in people)]
     keep.sort(key=lambda f: (-(f.end - f.start), -f.score, _PRIO.get(f.etype, 99), f.start))
+    chosen_starts: list[int] = []
     chosen: list[Finding] = []
     for f in keep:
-        if all(f.end <= c.start or f.start >= c.end for c in chosen):
-            chosen.append(f)
-    chosen.sort(key=lambda f: f.start)
+        k = bisect.bisect_left(chosen_starts, f.start)
+        if k > 0 and chosen[k - 1].end > f.start:
+            continue
+        if k < len(chosen) and chosen[k].start < f.end:
+            continue
+        chosen_starts.insert(k, f.start)
+        chosen.insert(k, f)
     return chosen

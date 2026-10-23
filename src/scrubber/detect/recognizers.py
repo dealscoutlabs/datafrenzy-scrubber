@@ -115,6 +115,7 @@ class NameGazetteerRecognizer(EntityRecognizer):
         self.honorific = re.compile(
             rf"\b{P.HONORIFIC}\.?[ \t]+(?P<value>[A-Z][a-zA-Z'-]+(?:[ \t]+[A-Z]\.?)?(?:[ \t]+[A-Z][a-zA-Z'-]+){{0,2}})")
         self.greeting = re.compile(rf"{P.GREETING}(?P<value>[A-Z][a-z'-]+(?:[ \t]+[A-Z][a-z'-]+)?)\b", re.M)
+        self.last_first = re.compile(r"\b(?P<last>[A-Z][a-z'-]+),[ \t]+(?P<first>[A-Z][a-z'-]+)\b(?![ \t]*,?[ \t]*[A-Z]{2}\b)")
         self.signature = re.compile(r"^[ \t]*[-~]*[ \t]*(?P<value>[A-Z][a-z'-]+(?:[ \t]+[A-Z][a-z'-]+)?)[ \t,.]*$", re.M)
         super().__init__(supported_entities=["PERSON"], name="name_gazetteer", supported_language="en")
 
@@ -171,6 +172,10 @@ class NameGazetteerRecognizer(EntityRecognizer):
                         i = j + 1
                         continue
                 i += 1
+        for m in self.last_first.finditer(text):  # "Wood, Natasha"
+            last, first = m.group("last"), m.group("first")
+            if last.upper() in self.last and first.upper() in self.first:
+                out.append(self._result(m.start(), m.end(), 0.75))
         for m in self.honorific.finditer(text):
             out.append(self._result(*m.span("value"), 0.85))
         for rx, score in ((self.greeting, 0.7), (self.signature, 0.6)):
@@ -223,6 +228,19 @@ class KnownEntityRecognizer(EntityRecognizer):
         return out
 
 
+def _firm_score(last_names):
+    """"Casey, Gray and Duncan" / "Lopez and Sons": every name word is a surname."""
+    filler = {"Sons", "Daughters", "Brothers", "Partners", "Associates", "Company", "Co"}
+
+    def score(v: str) -> float | None:
+        words = [w for w in re.findall(r"[A-Z][a-z]+", v)]
+        names = [w for w in words if w not in filler]
+        if len(words) < 2 or not names or not all(w.upper() in last_names for w in names):
+            return None
+        return 0.8
+    return score
+
+
 def build_custom_recognizers(cfg: dict, first_names, last_names) -> list[EntityRecognizer]:
     recs: list[EntityRecognizer] = []
     for i, entry in enumerate(cfg["labeled_ids"]):
@@ -243,6 +261,12 @@ def build_custom_recognizers(cfg: dict, first_names, last_names) -> list[EntityR
         RegexRecognizer("street_address", "STREET_ADDRESS", [P.STREET_ADDRESS, P.PO_BOX, P.MILITARY_ADDRESS], 0.8),
         RegexRecognizer("city_state", "LOCATION", [P.CITY_STATE_ZIP], 0.75, group="city"),
         RegexRecognizer("town_prefix", "LOCATION", [P.PLACE_PREFIX], 0.65),
+        RegexRecognizer("city_code_zip", "LOCATION", [P.CITY_CODE_ZIP], 0.75, group="city"),
+        RegexRecognizer("zip_city_code", "ZIP_CODE", [P.CITY_CODE_ZIP], 0.9, group="zip"),
+        RegexRecognizer("firm_names", "ORGANIZATION", [P.FIRM_NAMES], 0.0, scorer=_firm_score(last_names)),
+        RegexRecognizer("firm_suffix", "ORGANIZATION", [P.FIRM_SUFFIX], 0.75),
+        RegexRecognizer("hyphen_surnames", "PERSON", [P.HYPHEN_SURNAMES], 0.0, scorer=lambda v: 0.7 if all(
+            part.upper() in last_names for part in v.split("-")) else None),
         RegexRecognizer("town_suffix", "LOCATION", [P.PLACE_SUFFIX], 0.65, group="value"),
         RegexRecognizer("zip_city_state", "ZIP_CODE", [P.CITY_STATE_ZIP], 0.9, group="zip"),
         RegexRecognizer("zip_labeled", "ZIP_CODE", [P.LABELED_ZIP, P.STATE_ZIP], 0.9, group="value"),
@@ -252,6 +276,7 @@ def build_custom_recognizers(cfg: dict, first_names, last_names) -> list[EntityR
         RegexRecognizer("dates_no_year", "DATE", [P.DATE_NO_YEAR], 0.8, group="value"),
         RegexRecognizer("us_phone", "PHONE_NUMBER", [P.PHONE], 0.7),
         RegexRecognizer("full_url", "URL", [P.URL], 0.9),
+        RegexRecognizer("bare_domain", "URL", [P.BARE_DOMAIN], 0.6),
         RegexRecognizer("spoken_phone", "PHONE_NUMBER", [P.SPOKEN_DIGITS], 0.0,
                         scorer=lambda v: 0.65 if len(re.sub(r"\D", "", v)) in (7, 9, 10, 11) else None),
         RegexRecognizer("spoken_number", "OTHER_ID", [P.SPOKEN_DIGITS], 0.0,

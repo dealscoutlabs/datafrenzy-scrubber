@@ -64,17 +64,20 @@ def scrub_frame(img: Image.Image, ctx: Context, item: str) -> Image.Image:
     alpha = img.getchannel("A") if img.mode in ("RGBA", "LA") else None
     rgb = img.convert("RGB")
     if min(rgb.size) >= MIN_SIDE_FOR_OCR:
-        small = _ocr_scale(rgb, int(cfg["max_ocr_side"]))
-        v.analyzer.adapter.findings = []
-        redacted_small = v.redactor.redact(small, fill=(0, 0, 0))
-        if small is not rgb:
-            # paint the same boxes at full resolution
-            rgb = _paint_scaled(rgb, small, redacted_small)
-        else:
-            rgb = redacted_small
-        stats = v.analyzer.last
-        found = v.analyzer.adapter.findings
-        ctx.scrubber._count(found, ctx.tally)
+        stats = None
+        # OCR is not deterministic across layouts: once some boxes are painted, a number the
+        # first read garbled can come out clean. Read again and paint again (up to 3 rounds).
+        for _round in range(3):
+            small = _ocr_scale(rgb, int(cfg["max_ocr_side"]))
+            v.analyzer.adapter.findings = []
+            redacted_small = v.redactor.redact(small, fill=(0, 0, 0))
+            found = v.analyzer.adapter.findings
+            if stats is None:
+                stats = v.analyzer.last  # confidence gates judge the original text, not the boxes
+            if not found:
+                break
+            ctx.scrubber._count(found, ctx.tally)
+            rgb = _paint_scaled(rgb, small, redacted_small) if small is not rgb else redacted_small
         if stats.words >= 3 and stats.mean_conf < float(cfg["min_ocr_confidence"]):
             ctx.issue(f"{item}: low OCR confidence ({stats.mean_conf:.0f}) - text may have been missed")
         if stats.words >= 5 and stats.low_share > float(cfg["handwriting_share"]):

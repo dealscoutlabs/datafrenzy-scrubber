@@ -90,6 +90,7 @@ def ocr_text(image, min_conf: float = 60) -> str:
 class FaceDetector:
     def __init__(self, score_threshold: float = 0.6, max_side: int = 1280):
         import cv2
+        cv2.setNumThreads(1)  # one worker per core already; nested threads thrash
         self.cv2 = cv2
         self.score_threshold = score_threshold
         self.max_side = max_side

@@ -13,7 +13,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TRANSFORMERS_OFFLINE=1 \
     SCRUBBER_IN_CONTAINER=1 \
     MPLCONFIGDIR=/tmp/matplotlib \
-    XDG_CACHE_HOME=/tmp/cache
+    XDG_CACHE_HOME=/tmp/cache \
+    OMP_THREAD_LIMIT=1 \
+    OMP_NUM_THREADS=1
+# (one thread per worker for Tesseract/OpenCV: the pipeline already runs one worker per core,
+#  and nested threading made image runs ~70x slower)
 
 # pst-utils: readpst (Outlook .pst -> mbox). tesseract: OCR for images and
 # scanned PDFs. libgl1/libglib2.0: OpenCV (face detection).

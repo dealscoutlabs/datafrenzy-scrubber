@@ -300,8 +300,12 @@ def verify_pdf(data: bytes, pages: int, removed: list[str], ctx: Context, item: 
         joined = "\n".join(full)
         # true redaction: no removed identifier may still be extractable or sit in a raw stream
         raw = b"".join(doc.xref_stream(x) or b"" for x in range(1, doc.xref_length()) if doc.xref_is_stream(x))
+        import re as _re
         for s in {r.strip() for r in removed if len(r.strip()) >= 5}:
-            if s in joined or s.encode("latin-1", "ignore") in raw:
+            # numbers must stand alone: "77002" inside a drawing coordinate "72.77002" is not a leak
+            b = _re.escape(s.encode("latin-1", "ignore"))
+            rx = rb"(?<![0-9.])" + b + rb"(?![0-9])" if s.isdigit() else b
+            if s in joined or _re.search(rx, raw):
                 ctx.issue(f"{item}: removed text is still recoverable from the PDF")
                 break
 

@@ -17,7 +17,7 @@ SOURCE_OF_KIND = {
     "eml": "Email", "mbox": "Email", "csv": "Spreadsheets and CRM exports", "xlsx": "Spreadsheets and CRM exports",
     "json": "Data exports (JSON)", "jsonl": "Data exports (JSON)", "docx": "Documents", "pdf": "Documents",
     "text": "Documents", "image": "Images and photos", "dicom": "Medical imaging (DICOM)",
-    "media": "Call recordings (scrubbed transcripts only)", "zip": "Archives",
+    "media": "Call recordings (scrubbed transcripts only)", "zip": "Archives", "held-message": "Email",
 }
 UNIT_OF_SOURCE = {"Email": "messages", "Slack": "messages", "Spreadsheets and CRM exports": "rows",
                   "Data exports (JSON)": "records", "Documents": "pages/paragraphs", "Images and photos": "images",
@@ -64,6 +64,15 @@ def build(runner) -> dict:
         source = _source(row, released) if row["status"] == "done" else SOURCE_OF_KIND.get(row["kind"], "Other")
         folder = (row["out_rel"] or row["rel"]).split("/")[0] if "/" in (row["out_rel"] or "") else "(top level)"
         buckets = [by_source.setdefault(source, _blank()), by_folder.setdefault(folder, _blank()), total]
+        if row["kind"] == "held-message":
+            # single emails held from a mailbox: counted as messages, not as files
+            for b in buckets:
+                if row["status"] == "done":
+                    b["messages"] += 1
+                    b["records"] += 1
+                elif row["status"] == "review":
+                    b["held_for_review"] += 1
+            continue
         if row["status"] == "done":
             out = released / row["out_rel"]
             size_out = out.stat().st_size if out.exists() else 0

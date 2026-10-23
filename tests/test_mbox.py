@@ -96,3 +96,42 @@ def test_interrupted_run_resumes_from_checkpoint(tmp_path, synth, run_pipeline, 
     monkeypatch.setattr(mbox_mod, "scrub_message_bytes", real)
     runner, _ = run_pipeline(workspace, overrides={"mbox": {"shard_mb": 256, "checkpoint_every": 5}})
     assert (workspace.released / "Sent.mbox").read_bytes() == expected
+
+
+def test_one_flagged_message_held_alone(workspace, synth, run_pipeline, monkeypatch):
+    import scrubber.formats.base as base
+    _make_mbox(workspace.input / "Inbox.mbox", synth, 12)
+    real = base.Context.residual
+
+    def flag_one(self, text, where):
+        if where.endswith("message 0.5"):
+            self.issue(f"{where}: residual PERSON (score 0.90) after scrubbing", "residual", "…⟦x⟧…")
+        return real(self, text, where)
+
+    monkeypatch.setattr(base.Context, "residual", flag_one)
+    runner, summary = run_pipeline(workspace)
+    monkeypatch.setattr(base.Context, "residual", real)
+    box = workspace.released / "Inbox.mbox"
+    assert box.exists(), summary                       # the mailbox is exported ...
+    assert len(_messages(box)) == 11                   # ... without the one flagged email
+    (rv,) = runner.store.reviews("pending")
+    assert rv["rel"] == "Inbox.mbox::message 0.5"
+    runner.approve(rv["rel"], "Pat", "checked")
+    assert len(_messages(box)) == 12                   # approving adds it back
+    assert all(m["From"] and "scrubbed.invalid" in m["From"] for m in _messages(box))
+    s = runner.write_summary()
+    assert s["files"].get("review", 0) == 0
+
+
+def test_rejected_message_stays_out(workspace, synth, run_pipeline, monkeypatch):
+    import scrubber.formats.base as base
+    _make_mbox(workspace.input / "Inbox.mbox", synth, 6)
+    real = base.Context.residual
+    monkeypatch.setattr(base.Context, "residual", lambda self, text, where: (
+        self.issue(f"{where}: flagged", "residual") if where.endswith("message 0.2") else real(self, text, where)))
+    runner, _ = run_pipeline(workspace)
+    monkeypatch.setattr(base.Context, "residual", real)
+    (rv,) = runner.store.reviews("pending")
+    runner.reject(rv["rel"], "Pat")
+    assert len(_messages(workspace.released / "Inbox.mbox")) == 5
+    assert not list(workspace.staging.rglob("*.eml"))

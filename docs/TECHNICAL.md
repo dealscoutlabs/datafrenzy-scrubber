@@ -146,7 +146,7 @@ Parts covered:
 
 ## Tests and recall
 
-`scripts/test.sh` runs 211 tests in the network-less container (one is skipped unless the image includes Whisper). They include `tests/test_formats_identifiers.py`, which pushes every one of the 18-identifier cases through every format (txt, eml, csv, xlsx, json, Slack, docx with runs split mid-identifier, pdf).
+`scripts/test.sh` runs 213 tests in the network-less container (one is skipped unless the image includes Whisper). They include `tests/test_formats_identifiers.py`, which pushes every one of the 18-identifier cases through every format (txt, eml, csv, xlsx, json, Slack, docx with runs split mid-identifier, pdf).
 
 Recall on synthetic free text (N=200 per type, `tests/test_recall.py`):
 
@@ -172,7 +172,7 @@ The templates were written alongside the recognizers, so these figures are optim
 - Email attachments that are images, audio/video or unsupported types are replaced with a short note part and listed in the report. PDF, DOCX, JSON, zip, CSV and XLSX attachments are scrubbed in place.
 - A lone surname that is also an ordinary word, in a file name or a short label ("West_contacts.csv"), is only caught if that name was harvested from headers, name columns or Slack `users.json`.
 - PDF text drawn as vector outlines on a mostly-text page isn't extracted and isn't OCR'd (only scanned-looking pages are). It survives untouched.
-- **Faces were tested only on drawn faces.** The no-real-data rule rules out real photos, so the detector's recall on real faces (profiles, small faces in group photos, masks) is not measured here. Before relying on it, validate it on a licensed synthetic face set (e.g. GAN-generated faces of no real person).
+- **Faces were tested only on drawn faces.** Run `docker compose run --rm scrubber evaluate-faces /input/faces` on a folder of synthetic faces (e.g. SFHQ from Kaggle, MIT/CC0) to measure detection and post-blur leakage at full size, 25% and 10% of the frame; results go to `output/reports/face-evaluation.csv`. See also `docs/PERFORMANCE.md`, `docs/PILOT.md` and `docs/EXPERT_REVIEW.md`. The no-real-data rule rules out real photos, so the detector's recall on real faces (profiles, small faces in group photos, masks) is not measured here. Before relying on it, validate it on a licensed synthetic face set (e.g. GAN-generated faces of no real person).
 - Text the OCR can't read at all (very blurry, tiny, stylized) yields zero words, which no confidence gate can catch. There is no separate "is there text here?" detector.
 - Pictures inside XLSX are removed rather than cleaned (openpyxl can't write a replacement back).
 - DICOM: 3-D volumes (CT/MR of the head) can be rendered into a face. Defacing volumes is outside Safe Harbor tooling here, so treat head scans as needing expert review.

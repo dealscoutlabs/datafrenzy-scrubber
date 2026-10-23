@@ -38,6 +38,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("check-network", help="confirm the container has no network")
     sub.add_parser("watch", help="scrub, then wait for re-run requests from the review screen")
     sub.add_parser("report", help="rewrite the manifest and audit report")
+    fe = sub.add_parser("evaluate-faces", help="measure face detection/blurring on a folder of face images")
+    fe.add_argument("folder")
+    fe.add_argument("--limit", type=int, default=1000)
+    fe.add_argument("--out", default="/output/reports/face-evaluation.csv")
     ui = sub.add_parser("review-ui", help="start the local review screen")
     ui.add_argument("--port", type=int, default=8080)
     ui.add_argument("--host", default=os.environ.get("SCRUBBER_UI_HOST", "127.0.0.1"))
@@ -51,6 +55,11 @@ def main(argv: list[str] | None = None) -> int:
         # and it never scrubs anything: re-runs are handed to the network-less scrubber.
         from .ui.app import serve
         return serve(_paths(args), args.config, args.host, args.port)
+    if cmd == "evaluate-faces":
+        from .evaluate import evaluate
+        summary = evaluate(Path(args.folder), Path(args.out), limit=args.limit)
+        print(json.dumps(summary, indent=2))
+        return 0
     if cmd == "check-network":
         ifaces = netguard.network_interfaces()
         print(f"Network interfaces visible: {ifaces}")
