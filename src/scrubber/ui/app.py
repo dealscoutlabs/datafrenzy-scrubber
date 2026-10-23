@@ -241,7 +241,7 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
         if side == "original":
             path = Path(f["src"]).resolve()
             roots = [paths.input.resolve(), (paths.work / "pst").resolve()]
-            if not any(str(path).startswith(str(root) + "/") for root in roots):
+            if not any(path.is_relative_to(root) and path != root for root in roots):
                 raise HTTPException(404)
         else:
             path = (paths.released if f["status"] == "done" else paths.staging) / f["out_rel"]

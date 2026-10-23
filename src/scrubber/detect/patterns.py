@@ -175,6 +175,7 @@ see sons brothers bros associates partners group inc llc ltd co corp corporation
 labs lab results result report reports imaging radiology pharmacy billing scheduling referral referrals intake
 discharge summary forms form consent claims claim invoice invoices statement statements schedule agenda minutes
 update updates meeting meetings team staff admin office reception front desk triage pending approved urgent
+care coordinator coordinators coordination case manager management services service support health
 """.split())
 
 # Ordinary lowercase words that also appear in the Census name lists; never
