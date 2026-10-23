@@ -5,6 +5,7 @@ name: windows-app
 on:
   workflow_dispatch: {}
   push:
+    branches: [windows-app]   # every upload of the Windows branch builds and tests the installer
     tags: ["v*"]
 
 jobs:
