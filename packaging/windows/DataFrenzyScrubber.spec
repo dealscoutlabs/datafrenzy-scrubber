@@ -24,6 +24,9 @@ for pkg in ("scrubber", "spacy", "thinc", "en_core_web_lg", "presidio_analyzer",
     hiddenimports += h
 
 datas += [(str(ROOT / "data"), "data"), (str(ROOT / "LICENSE"), "."), (str(ROOT / "THIRD_PARTY_LICENSES.md"), ".")]
+# AGPL: the complete source code ships inside every download (made by `git archive` before the build)
+if (ROOT / "dist" / "source.zip").exists():
+    datas += [(str(ROOT / "dist" / "source.zip"), ".")]
 
 a = Analysis(
     [str(ROOT / "packaging" / "windows" / "launcher.py")],

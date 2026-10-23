@@ -43,7 +43,11 @@ jobs:
           python -m pytest tests -q -p no:cacheprovider --ignore=tests/test_recall.py
 
       - name: Build the app (PyInstaller)
-        run: pyinstaller packaging/windows/DataFrenzyScrubber.spec --noconfirm --distpath dist --workpath build
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          git archive --format=zip -o dist/source.zip HEAD   # AGPL: the source ships inside the app
+          pyinstaller packaging/windows/DataFrenzyScrubber.spec --noconfirm --distpath dist --workpath build
 
       - name: Bundle Tesseract OCR
         shell: pwsh

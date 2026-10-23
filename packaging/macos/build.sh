@@ -5,6 +5,7 @@ set -e
 cd "$(dirname "$0")/../.."
 PY=${1:-python3}
 APP="dist/Data Frenzy Scrubber.app"
+mkdir -p dist && git archive --format=zip -o dist/source.zip HEAD   # AGPL: source ships with the app
 "$PY" -m PyInstaller packaging/macos/DataFrenzyScrubber.spec --noconfirm --distpath dist --workpath build
 python3 packaging/macos/bundle_tesseract.py "$APP/Contents/Frameworks/tesseract"
 # Re-sign the whole app after adding files (ad-hoc until a Developer ID certificate exists;
