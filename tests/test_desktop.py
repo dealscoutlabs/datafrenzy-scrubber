@@ -150,13 +150,16 @@ def test_batch_add_save_and_new(tmp_path, monkeypatch):
     out = desktop.current_paths().output / "scrubbed"
     out.mkdir(parents=True)
     (out / "notes.txt").write_text("clean")
+    (desktop.current_paths().output / "manifest.csv").write_text("m")
     saved = desktop.save_output(str(tmp_path / "Desktop"))
-    assert (saved / "scrubbed" / "notes.txt").read_text() == "clean" and saved.name.startswith("Data Frenzy Scrubbed")
+    assert (saved / "notes.txt").read_text() == "clean" and saved.name.startswith("Data Frenzy Scrubbed")
+    assert sorted(p.name for p in saved.iterdir()) == ["Scrub report", "notes.txt"]
+    assert (saved / "Scrub report" / "manifest.csv").exists()
 
     desktop.new_batch()
     assert not desktop.batch_dir().exists()
     (entry,) = desktop.history()
-    assert entry["saved_to"] == [str(saved)] and "notes" not in str({k: v for k, v in entry.items() if k != "saved_to"})
+    assert entry["saved_to"][-1] == str(saved) and "notes" not in str({k: v for k, v in entry.items() if k != "saved_to"})
 
 
 def test_text_clippings_are_not_added(tmp_path, monkeypatch):

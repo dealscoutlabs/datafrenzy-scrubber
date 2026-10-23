@@ -272,12 +272,28 @@ def _history_entry() -> dict | None:
             "saved_to": meta.get("saved_to", []), **batch_counts()}
 
 
+REPORT_FOLDER = "Scrub report"
+
+
 def save_output(dest: str) -> Path:
-    """Copy the batch's export (scrubbed files, manifest, report) into a new folder inside dest."""
+    """Copy the batch into a new folder inside dest: the cleaned files at the top, the manifest
+    and de-identification report in one "Scrub report" folder next to them."""
     import shutil
     stamp = time.strftime("%Y-%m-%d %H.%M")
     target = _free_name(Path(dest), f"Data Frenzy Scrubbed {stamp}")
-    shutil.copytree(current_paths().output, target)
+    out = current_paths().output
+    target.mkdir(parents=True)
+    scrubbed = out / "scrubbed"
+    if scrubbed.is_dir():
+        shutil.copytree(scrubbed, target, dirs_exist_ok=True)
+    report = target / REPORT_FOLDER
+    if (target / REPORT_FOLDER).exists():
+        report = _free_name(target, REPORT_FOLDER)
+    report.mkdir()
+    for item in out.iterdir():
+        if item.name == "scrubbed":
+            continue
+        (shutil.copytree if item.is_dir() else shutil.copy2)(item, report / item.name)
     meta = batch_info()
     meta.setdefault("saved_to", []).append(str(target))
     _save_batch_info(meta)
