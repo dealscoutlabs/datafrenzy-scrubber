@@ -56,15 +56,16 @@ def _letters(n: int) -> str:
     return out
 
 
-def tidy_sheet(ws, hdr: int, headers: list, types: list[str], originals: dict[int, list]) -> bool:
-    """originals: column index -> the original (pre-scrub) values of that column, one per data row."""
+def tidy_sheet(ws, hdr: int, headers: list, types: list[str], originals: dict[int, list]) -> set[str]:
+    """originals: column index -> the original (pre-scrub) values of that column, one per data row.
+    Returns the labels it wrote ("Patient 1", "Facility A"), empty if the sheet was left as it is."""
     if hdr is None or ws.merged_cells.ranges:
-        return False
+        return set()
     ncol = len(headers)
     roles = [_role(h, t) if h else None for h, t in zip(headers, types)]
     patient = next((i for i, r in enumerate(roles) if r == "Patient"), None)
     if patient is None:
-        return False  # other tables keep their tokens, which link the same person across files
+        return set()  # other tables keep their tokens, which link the same person across files
 
     # ---- data rows and a trailing totals row
     rows = list(ws.iter_rows(min_row=hdr + 1, max_row=ws.max_row, max_col=ncol))
@@ -74,7 +75,7 @@ def tidy_sheet(ws, hdr: int, headers: list, types: list[str], originals: dict[in
     while body and all(c.value in (None, "") for c in body[-1]):
         tail.insert(0, body.pop())
     if any(c.data_type == "f" for row in body for c in row):
-        return False
+        return set()
     values = [[c.value for c in row] for row in body]
     orig = {j: (originals.get(j) or [])[: len(values)] for j in range(ncol)}
 
@@ -187,7 +188,7 @@ def tidy_sheet(ws, hdr: int, headers: list, types: list[str], originals: dict[in
             ws.cell(r, c + 1)._style = style
         if any(d == "f" for _, d, _ in row) and ws.cell(r, 1).value in (None, ""):
             ws.cell(r, 1).value = "Totals"
-    return True
+    return set(labels.values())
 
 
 ORG_NOUNS_TITLE = {n.title() for n in ORG_NOUNS}

@@ -448,7 +448,7 @@ def _scrub_sheet(ws, ctx: Context, item: str) -> None:
         ctx.tally.records += len(chunk)
     if tidy:
         from .tidy import tidy_sheet
-        tidy_sheet(ws, hdr, [c.value for c in rows[hdr - 1]], plan.types, originals)
+        ctx.kept |= tidy_sheet(ws, hdr, [c.value for c in rows[hdr - 1]], plan.types, originals)
     for row in rows:
         for cell in row:
             if cell.comment is not None:
