@@ -183,6 +183,28 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
         word = "approved and exported" if decision == "approve" else "rejected (not exported)"
         return back("/review", f"{f['out_rel']}: {word}", reviewer)
 
+    @app.post("/review-bulk")
+    async def decide_many(csrf_token: str = Form(...), reviewer: str = Form(""), decision: str = Form(...),
+                          fids: list[str] = Form([]), note: str = Form("")):
+        check_form(csrf_token, reviewer)
+        if decision not in ("approve", "reject"):
+            raise HTTPException(404)
+        r = runner()
+        wanted = set(fids)
+        done, failed = 0, 0
+        for f in r.store.files():
+            if file_id(f["rel"]) not in wanted:
+                continue
+            try:
+                (r.approve if decision == "approve" else r.reject)(f["rel"], reviewer.strip(), note.strip())
+                done += 1
+            except ValueError:
+                failed += 1
+        r.write_summary()
+        word = "approved and exported" if decision == "approve" else "rejected (not exported)"
+        msg = f"{done} file{'s' if done != 1 else ''} {word}" + (f"; {failed} were already decided" if failed else "")
+        return back("/review", msg if done or failed else "No files were selected", reviewer)
+
     @app.get("/samples", response_class=HTMLResponse)
     async def samples(request: Request):
         r = runner()
@@ -234,9 +256,11 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
         (req / "rerun.json").write_text(json.dumps({"requested_at": time.time()}))
         return back("/", "Re-run requested. The scrubber picks it up within a few seconds.")
 
-    @app.get("/static/desktop.js")
-    async def desktop_js():
-        return Response((Path(__file__).with_name("static") / "desktop.js").read_text(),
+    @app.get("/static/{name}.js")
+    async def static_js(name: str):
+        if name not in ("desktop", "review"):
+            raise HTTPException(404)
+        return Response((Path(__file__).with_name("static") / f"{name}.js").read_text(),
                         media_type="text/javascript")
 
     @app.get("/reports/{name}")

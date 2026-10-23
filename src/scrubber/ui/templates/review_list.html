@@ -1,18 +1,40 @@
 {% extends "base.html" %}
 {% block title %}Review queue{% endblock %}
+{% block style %}
+  .bulk { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:0 0 14px; }
+  .bulk input[type=text] { width:200px; }
+  td.pick, th.pick { width:34px; }
+  td.pick input, th.pick input { width:18px; height:18px; accent-color:var(--accent); }
+{% endblock %}
 {% block body %}
 <h1>Review queue</h1>
-<p class="muted">These files were held back because the automatic double-check found something a person should look at. They are not exported until approved.</p>
+<p class="lede">These files were held back because the automatic double-check found something a person should look at.
+They are not exported until approved. Look over the flags, then approve or reject many at once.</p>
+{% set pending = rows|selectattr('status', 'equalto', 'pending')|list %}
 {% if rows %}
-<div class="wrap"><table>
-<tr><th>Status</th><th>File</th><th>Why it was held</th><th></th></tr>
-{% for r in rows %}
-<tr><td><span class="pill {{ r.status }}">{{ r.status }}</span></td>
-<td>{{ r.rel }}<div class="muted small">exported as {{ r.out_rel }}</div></td>
-<td class="small">{{ r.reasons|length }} flag(s){% for x in r.reasons[:2] %}<br>{{ x }}{% endfor %}{% if r.reasons|length > 2 %}<br>…{% endif %}
-{% if r.by %}<div class="muted">decided by {{ r.by }}{% if r.note %}: {{ r.note }}{% endif %}</div>{% endif %}</td>
-<td><a href="/review/{{ r.fid }}">{{ 'Review' if r.status == 'pending' else 'View' }}</a></td></tr>
-{% endfor %}
-</table></div>
+<form method="post" action="/review-bulk" class="card">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  {% if pending %}
+  <div class="bulk">
+    <label>Your name <input type="text" name="reviewer" value="{{ reviewer }}" required></label>
+    <button type="submit" name="decision" value="approve">Approve selected</button>
+    <button type="submit" name="decision" value="reject" class="secondary">Reject selected</button>
+    <span class="muted small"><span id="count">{{ pending|length }}</span> of {{ pending|length }} selected</span>
+  </div>
+  {% endif %}
+  <div class="wrap"><table>
+  <tr>{% if pending %}<th class="pick"><input type="checkbox" id="all" checked aria-label="Select all waiting files"></th>{% endif %}
+    <th>Status</th><th>File</th><th>Why it was held</th><th></th></tr>
+  {% for r in rows %}
+  <tr>{% if pending %}<td class="pick">{% if r.status == 'pending' %}<input type="checkbox" name="fids" value="{{ r.fid }}" checked aria-label="Select {{ r.rel }}">{% endif %}</td>{% endif %}
+  <td><span class="pill {{ r.status }}">{{ r.status }}</span></td>
+  <td>{{ r.rel }}<div class="muted small">exported as {{ r.out_rel }}</div></td>
+  <td class="small">{{ r.reasons|length }} flag(s){% for x in r.reasons[:2] %}<br>{{ x }}{% endfor %}{% if r.reasons|length > 2 %}<br>…{% endif %}
+  {% if r.by %}<div class="muted">decided by {{ r.by }}{% if r.note %}: {{ r.note }}{% endif %}</div>{% endif %}</td>
+  <td><a href="/review/{{ r.fid }}">{{ 'Look closer' if r.status == 'pending' else 'View' }}</a></td></tr>
+  {% endfor %}
+  </table></div>
+</form>
+<script src="/static/review.js" defer></script>
 {% else %}<div class="card">Nothing to review.</div>{% endif %}
 {% endblock %}

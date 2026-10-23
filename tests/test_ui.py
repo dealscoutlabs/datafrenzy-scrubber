@@ -49,6 +49,26 @@ def test_forms_need_csrf_token(ui, workspace):
     assert not (workspace.work / "requests" / "rerun.json").exists()
 
 
+def test_bulk_approve(ui):
+    client, runner, _, _ = ui
+    pending = runner.store.reviews("pending")
+    page = client.get("/review").text
+    assert "Approve selected" in page and page.count('name="fids"') == len(pending) > 0
+    token = _csrf(client, "/review")
+    assert client.post("/review-bulk", data={"csrf_token": token, "reviewer": "", "decision": "approve",
+                                             "fids": [file_id(rv["rel"]) for rv in pending]}).status_code == 400
+    r = client.post("/review-bulk", data={"csrf_token": token, "reviewer": "Pat", "decision": "approve",
+                                          "fids": [file_id(rv["rel"]) for rv in pending]}, follow_redirects=False)
+    assert r.status_code == 303 and "approved" in r.headers["location"]
+    assert not runner.store.reviews("pending") and len(runner.store.reviews("approved")) == len(pending)
+
+
+def test_null_origin_refused_outside_the_app(ui):
+    client, *_ = ui
+    r = client.post("/rerun", data={"csrf_token": _csrf(client)}, headers={"origin": "null"})
+    assert r.status_code == 403
+
+
 def test_review_queue_and_approve(ui, workspace):
     client, runner, _, p = ui
     (rv,) = runner.store.reviews("pending")

@@ -115,3 +115,4 @@ def test_drop_files_copies_them_to_a_private_folder(tmp_path, monkeypatch):
     c.write_text("z")
     target = desktop.dropped_input([str(c)])
     assert [p.name for p in target.iterdir()] == ["other.eml"]
+
