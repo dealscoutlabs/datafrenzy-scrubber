@@ -1,7 +1,0 @@
-{
-  "exported": 3,
-  "expected": 3,
-  "leaks": [],
-  "network_lock": "Mac trial build: the app blocks itself from the internet. Apple's system-level block comes with the signed Mac app.",
-  "ok": true
-}
