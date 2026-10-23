@@ -69,10 +69,11 @@ def test_desktop_script_served(workspace, tmp_path):
     assert r.status_code == 200 and "pywebviewready" in r.text
 
 
-def test_lock_refuses_outside_windows(monkeypatch):
+def test_lock_outside_windows(monkeypatch):
+    """The Mac trial build runs without a firewall rule; Linux has no desktop app."""
     monkeypatch.delenv("SCRUBBER_DEV_ALLOW_NO_LOCK", raising=False)
     if desktop.os.name != "nt":
-        assert desktop.network_lock()[0] is False
+        assert desktop.network_lock()[0] is (desktop.sys.platform == "darwin")
 
 
 def test_self_test_passes(monkeypatch, capsys):
