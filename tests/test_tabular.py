@@ -130,9 +130,20 @@ def test_discharge_report_columns(synth, ctx):
     assert sorted(r[4] for r in rows) == sorted((dt.datetime(2026, 5, 1 + i) - dt.datetime(2026, 3, 1 + i)).days
                                                 for i in range(12))
     for pid, fac, adm, dis, los, ther, dtype, total in rows:
-        assert re.fullmatch(r"Patient \d+", pid) and fac == "Facility A" and adm == dis == 2026
+        assert re.fullmatch(r"Patient \d+", pid) and re.fullmatch(r"Facility [A-Z]+", fac) and adm == dis == 2026
         assert ther is None or re.fullmatch(r"Therapist \d+", ther), ther
         assert dtype in types and total == 1
+    assert len({r[1] for r in rows}) == 1
     flat = " ".join(str(v) for r in rows for v in r)
     for p in people:
         assert p.last not in flat
+    # the same patient keeps the same number in another spreadsheet
+    wb2 = Workbook()
+    ws2 = wb2.active
+    ws2.append(["Patient Name", "Discharge Type"])
+    ws2.append([people[3].name, "Medical"])
+    buf2 = io.BytesIO()
+    wb2.save(buf2)
+    out2 = load_workbook(io.BytesIO(scrub_xlsx_bytes(buf2.getvalue(), ctx, "other.xlsx"))).active
+    assert out2["A2"].value == f"Patient {int(ctx.pseudo.token('PERSON', people[3].name).split('_')[1])}"
+    assert out2["A2"].value in {r[0] for r in rows}

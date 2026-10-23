@@ -2,7 +2,7 @@
 
 Runs on a worksheet after its cells were scrubbed:
   - people and organizations get plain labels: "Patient 1", "Therapist 3", "Facility A"
-    (numbered in this sheet, in row order after shuffling)
+    numbered from the scrubber's tokens, so Patient 42 is the same person in every file and batch
   - with a patient column, other ID columns (admission/encounter IDs, MRNs) are removed and
     the patient column becomes "Patient ID" in their place
   - date columns become "... Year"; an admission/discharge pair also gets "Length of Stay (Days)"
@@ -27,6 +27,7 @@ DISCHARGE = re.compile(r"\b(discharge|discharged|check ?out|release|end)\b")
 ORG_NOUNS = ("facility", "clinic", "hospital", "pharmacy", "practice", "employer", "school", "payer", "insurer",
              "carrier", "vendor", "program", "campus", "location", "site", "agency")
 ID_TYPES = {"other_id", "mrn"}
+TOKEN_NUMBER = re.compile(r"^[A-Z_]+_(\d+)$")
 
 
 def _role(header: str, ctype: str) -> str | None:
@@ -115,10 +116,16 @@ def tidy_sheet(ws, hdr: int, headers: list, types: list[str], originals: dict[in
     counters: dict[str, int] = {}
 
     def label(role: str, token) -> str:
+        """The number comes from the scrubber's token (PERSON_0042 -> Patient 42), which is the
+        same in every file and batch; values that aren't tokens get a number for this sheet."""
         key = (role, token)
         if key not in labels:
-            n = counters.get(role, 0)
-            counters[role] = n + 1
+            m = TOKEN_NUMBER.search(str(token))
+            if m:
+                n = int(m.group(1)) - 1
+            else:
+                n = counters.get(role, 0)
+                counters[role] = n + 1
             labels[key] = f"{role} {_letters(n) if role in ORG_NOUNS_TITLE or role == 'Organization' else n + 1}"
         return labels[key]
 
