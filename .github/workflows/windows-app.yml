@@ -16,6 +16,7 @@ jobs:
       PYTHONPATH: src
       OMP_THREAD_LIMIT: "1"
       APP_VERSION: "0.1.0"
+      R2_KEY: ${{ secrets.R2_ACCESS_KEY_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,6 +68,21 @@ jobs:
       - name: Build the installer (Inno Setup)
         shell: pwsh
         run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:APP_VERSION" packaging\windows\installer.iss'
+
+      # Publish to Cloudflare R2 (only when the R2_* secrets exist): a versioned copy plus a
+      # stable "latest" name that the datafrenzy.ai/download page links to.
+      - name: Upload the installer to Cloudflare R2
+        if: ${{ env.R2_KEY != '' && steps.tests.outcome == 'success' }}
+        shell: pwsh
+        env:
+          R2_KEY: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          $f = Get-ChildItem packaging/windows/Output/*.exe | Select-Object -First 1
+          aws s3 cp $f.FullName "s3://datafrenzy-downloads/scrubber/$env:APP_VERSION/$($f.Name)" --endpoint-url "${{ secrets.R2_ENDPOINT }}"
+          aws s3 cp $f.FullName "s3://datafrenzy-downloads/scrubber/latest/DataFrenzyScrubber-Setup.exe" --endpoint-url "${{ secrets.R2_ENDPOINT }}"
 
       - uses: actions/upload-artifact@v4
         with:

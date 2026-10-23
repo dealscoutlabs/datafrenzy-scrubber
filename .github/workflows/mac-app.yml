@@ -19,6 +19,8 @@ jobs:
     env:
       PYTHONPATH: src
       OMP_THREAD_LIMIT: "1"
+      APP_VERSION: "0.1.0"
+      R2_KEY: ${{ secrets.R2_ACCESS_KEY_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,6 +38,17 @@ jobs:
       # Developer ID signing + notarization go into build.sh once an Apple Developer account exists.
       - name: Build, bundle OCR, self-test, make .dmg
         run: packaging/macos/build.sh python
+      - name: Upload the .dmg to Cloudflare R2
+        if: ${{ env.R2_KEY != '' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          f=$(ls dist/*.dmg | head -1); name=$(basename "$f"); arch=$(uname -m)
+          aws s3 cp "$f" "s3://datafrenzy-downloads/scrubber/$APP_VERSION/$name" --endpoint-url "${{ secrets.R2_ENDPOINT }}"
+          aws s3 cp "$f" "s3://datafrenzy-downloads/scrubber/latest/DataFrenzyScrubber-mac-$arch.dmg" --endpoint-url "${{ secrets.R2_ENDPOINT }}"
+
       - uses: actions/upload-artifact@v4
         with:
           name: DataFrenzyScrubber-mac-${{ runner.arch }}
