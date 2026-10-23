@@ -33,10 +33,13 @@ jobs:
           pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl
 
       - name: Run the test suite on Windows
+        id: tests
+        continue-on-error: true   # keep going so one run also shows any packaging problems
         shell: pwsh
         run: |
           $env:PATH = "C:\Program Files\Tesseract-OCR;$env:PATH"
           $env:SCRUBBER_DATA_DIR = "$PWD\data"
+          $env:SCRUBBER_DEBUG_RESIDUAL = "1"   # print what verification flags, for diagnosing failures
           python -m pytest tests -q -p no:cacheprovider --ignore=tests/test_recall.py
 
       - name: Build the app (PyInstaller)
@@ -72,3 +75,7 @@ jobs:
         with:
           name: selftest-result
           path: selftest.json
+
+      - name: Fail the build if any test failed
+        if: steps.tests.outcome == 'failure'
+        run: exit 1

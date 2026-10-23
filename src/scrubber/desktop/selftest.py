@@ -28,14 +28,16 @@ def run(out_path: str | None = None) -> int:
     from ..pipeline import Paths, Runner
     from .app import network_lock
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         t = Path(tmp)
         paths = Paths(t / "input", t / "output", t / "work", t / "state")
         paths.input.mkdir()
         (paths.input / "note.txt").write_text(NOTE)
         (paths.input / "patients.csv").write_text(CSV, newline="")
         (paths.input / "visit.eml").write_text(EML, newline="")
-        summary = Runner(paths, load_config(), workers=2, echo=lambda *_: None).run()
+        runner = Runner(paths, load_config(), workers=2, echo=lambda *_: None)
+        summary = runner.run()
+        runner.store.close()  # Windows won't delete an open database file
         leaks = []
         for f in paths.output.rglob("*"):
             if f.is_file():

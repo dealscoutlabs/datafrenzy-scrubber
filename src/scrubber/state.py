@@ -90,6 +90,11 @@ class Store:
             self._pid = os.getpid()
         return self._conn
 
+    def close(self) -> None:
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
     @contextmanager
     def tx(self):
         c = self.conn

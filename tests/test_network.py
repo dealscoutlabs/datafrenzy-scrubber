@@ -46,8 +46,22 @@ def test_in_process_guard_blocks_internet_sockets():
         socket.getaddrinfo("example.com", 443)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     with pytest.raises(netguard.NetworkBlocked):
-        s.connect(("127.0.0.1", 9))
+        s.connect(("93.184.216.34", 443))   # any internet address
     s.close()
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    with pytest.raises(netguard.NetworkBlocked):
+        s.connect(("localhost", 9))         # host names never resolve
+    s.close()
+
+
+def test_loopback_allowed_for_the_computer_talking_to_itself():
+    """Windows' event loop and the local review screen use 127.0.0.1; that never leaves the PC."""
+    netguard.install()
+    a, b = socket.socketpair()
+    a.sendall(b"ok")
+    assert b.recv(2) == b"ok"
+    a.close()
+    b.close()
 
 
 def test_scrubbing_makes_no_network_attempts(scrubber, monkeypatch):

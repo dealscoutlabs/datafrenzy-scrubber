@@ -26,6 +26,21 @@ def _blocked(*_args, **_kwargs):
     raise NetworkBlocked("Network access is disabled in Data Frenzy Local Scrubber")
 
 
+_AF_UNIX = getattr(socket, "AF_UNIX", None)  # missing on Windows
+_LOOPBACK = {"127.0.0.1", "::1"}
+
+
+def _local(sock, address) -> bool:
+    """Connections that never leave this computer: Unix sockets, and numeric loopback
+    (Windows' own event loop talks to itself over 127.0.0.1). Name lookups stay blocked,
+    so "localhost" or any other host name cannot be used to get out."""
+    if _AF_UNIX is not None and sock.family == _AF_UNIX:
+        return True
+    if sock.family in (socket.AF_INET, socket.AF_INET6) and isinstance(address, tuple):
+        return str(address[0]) in _LOOPBACK
+    return False
+
+
 def install() -> None:
     global _installed
     if _installed:
@@ -35,17 +50,17 @@ def install() -> None:
     original_sendto = socket.socket.sendto
 
     def connect(self, address):
-        if self.family == socket.AF_UNIX:
+        if _local(self, address):
             return original_connect(self, address)
         _blocked()
 
     def connect_ex(self, address):
-        if self.family == socket.AF_UNIX:
+        if _local(self, address):
             return original_connect_ex(self, address)
         _blocked()
 
     def sendto(self, *args):
-        if self.family == socket.AF_UNIX:
+        if _local(self, args[-1]):
             return original_sendto(self, *args)
         _blocked()
 
