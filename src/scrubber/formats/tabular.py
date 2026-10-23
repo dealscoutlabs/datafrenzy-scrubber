@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import BinaryIO, Callable
 
 from .base import Context
-from .columns import COLUMN_ENTITY, classify_by_content, classify_header
+from .columns import is_category, COLUMN_ENTITY, classify_by_content, classify_header
 
 BATCH_ROWS = 500
 RESIDUAL_CHARS = 50_000
@@ -26,7 +26,8 @@ csv.field_size_limit(1 << 30)
 # ---------------------------------------------------------------- column plan
 
 class ColumnPlan:
-    def __init__(self, headers: list, samples: list[list], ctx: Context, file_name: str):
+    def __init__(self, headers: list, samples: list[list], ctx: Context, file_name: str,
+                 all_rows: list[list] | None = None):
         tab = ctx.cfg["tabular"]
         rules = tab["column_rules"]
         overrides = (tab.get("column_overrides") or {}).get(file_name, {})
@@ -34,6 +35,11 @@ class ColumnPlan:
         self.actions: list[str] = []
         for i, header in enumerate(headers):
             ctype = classify_header(header)
+            if ctype == "category":
+                col = [row[i] if i < len(row) else None for row in (all_rows or samples)]
+                ctype = "numeric" if is_category(col) else None  # a short list of repeated labels is kept as is
+                if ctype == "numeric":
+                    ctx.kept.update(str(v).strip() for v in col if isinstance(v, str))
             if ctype is None:
                 col = [row[i] if i < len(row) else None for row in samples]
                 ctype = classify_by_content(col, ctx.scrubber.detector, float(tab["content_match_ratio"])) or "unknown"
@@ -168,7 +174,7 @@ def needs_check(value: str) -> bool:
 
 def _residual_rows(rows: list[list], ctx: Context, where: str, buf: list[str]) -> None:
     for row in rows:
-        buf.extend(str(v) for v in row if v not in (None, "") and needs_check(str(v)))
+        buf.extend(str(v) for v in row if v not in (None, "") and str(v).strip() not in ctx.kept and needs_check(str(v)))
     if sum(len(x) for x in buf) >= RESIDUAL_CHARS:
         flush_residual(buf, ctx, where)
 
@@ -422,8 +428,12 @@ def _scrub_sheet(ws, ctx: Context, item: str) -> None:
                 cell.value = value
     sample_n = int(ctx.cfg["tabular"]["sample_rows"])
     samples = [[c.value for c in row] for row in rows[data_start: data_start + sample_n]]
-    plan = ColumnPlan(headers, samples, ctx, f"{Path(item).name}!{ws.title}")
+    plan = ColumnPlan(headers, samples, ctx, f"{Path(item).name}!{ws.title}",
+                      all_rows=[[c.value for c in row] for row in rows[data_start:]])
     rewriter = CellRewriter(ctx, plan, blank=None, allow_remove=False)
+    tidy = hdr is not None and ctx.cfg["tabular"].get("tidy", True)
+    originals = {j: [row[j].value if j < len(row) else None for row in rows[data_start:]]
+                 for j, t in enumerate(plan.types) if t == "date"} if tidy else {}
     for b in range(data_start, len(rows), BATCH_ROWS):
         chunk = rows[b: b + BATCH_ROWS]
         values = [[None if c.data_type == "f" else c.value for c in row] for row in chunk]
@@ -436,6 +446,9 @@ def _scrub_sheet(ws, ctx: Context, item: str) -> None:
                         cell.number_format = "0"
                     cell.value = v
         ctx.tally.records += len(chunk)
+    if tidy:
+        from .tidy import tidy_sheet
+        tidy_sheet(ws, hdr, [c.value for c in rows[hdr - 1]], plan.types, originals)
     for row in rows:
         for cell in row:
             if cell.comment is not None:

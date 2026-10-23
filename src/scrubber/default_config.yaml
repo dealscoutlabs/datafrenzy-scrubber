@@ -248,5 +248,9 @@ tabular:
     country: keep
     notes: scrub
     unknown: scrub
+  # Spreadsheets with a patient column are tidied like a hand-made de-identified sheet:
+  # "Patient 1" / "Therapist 3" / "Facility A" labels, other ID columns removed, dates as
+  # years plus length of stay, rows shuffled. false keeps the original layout and tokens.
+  tidy: true
   # Per-file overrides: {"patients.csv": {"Favorite Color": keep}}
   column_overrides: {}

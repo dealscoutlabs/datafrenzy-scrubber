@@ -164,7 +164,7 @@ class Detector:
         Next to one of our tokens, the leftover word must be a known first/last name: the model
         often stretches a span from a token into the following word ("PERSON_0008 Footnote")."""
         rest = ARTIFACT_RE.sub(" ", span)
-        words = [w.strip(".'") for w in re.findall(r"[A-Za-z][A-Za-z'.-]*", rest)]
+        words = [w.strip(".'-") for w in re.findall(r"[A-Za-z][A-Za-z'.-]*", rest)]
         words = [w for w in words if w.lower() not in P.LABEL_WORDS and not (w.isupper() and len(w) <= 3)]
         if rest == span:
             return bool(words)

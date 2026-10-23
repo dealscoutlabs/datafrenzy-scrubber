@@ -177,6 +177,7 @@ discharge summary forms form consent claims claim invoice invoices statement sta
 update updates meeting meetings team staff admin office reception front desk triage pending approved urgent
 care coordinator coordinators coordination case manager management services service support health
 current facility facilities name names raw identified de-identified deidentified de unit units dept department
+data dataset export exports sheet sheets tab tabs table tables contains phi pii raw original copy final draft
 """.split())
 
 # Ordinary lowercase words that also appear in the Census name lists; never

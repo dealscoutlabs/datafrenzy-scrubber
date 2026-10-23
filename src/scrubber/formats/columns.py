@@ -10,6 +10,9 @@ from collections import Counter
 HEADER_RULES: list[tuple[str, str]] = [
     ("person_name", r"(holder|subscriber|insured|member|guarantor|beneficiary|policyholder|patient|contact|"
                     r"customer|client|employee|provider|physician|doctor) (full )?name$"),
+    ("person_name", r"(therapist|counselor|counsellor|clinician|nurse|physician|doctor|provider|psychiatrist|"
+                    r"psychologist|social worker|case manager|caseworker|care coordinator|prescriber|"
+                    r"attending|clinical lead)( name)?$"),
     ("dob", r"\bdob\b|\bd o b\b|birth|\bbday\b"),
     ("email", r"e ?mail"),
     ("fax", r"\bfax\b|facsimile"),
@@ -41,7 +44,7 @@ HEADER_RULES: list[tuple[str, str]] = [
     ("country", r"country|nation"),
     ("age", r"^age\b|\bage$|age (years|yrs|at)"),
     ("date", r"date|\bdt$|time ?stamp|^time$|created|modified|updated|admit|admission|discharge|death|deceased|"
-             r"visit|appointment|\bappt\b|\bdos\b|^seen|scheduled|signed|closed|opened|last (activity|contact)|"
+             r"visit|appointment|\bappt\b|\bdos\b|^seen|scheduled|\bsigned\b|closed|opened|last (activity|contact)|"
              r"\bdue\b|expir|\bstart\b|\bend\b|onset|surgery|procedure date"),
     ("person_name", r"^(full |patient |first |last |middle |given |family |sur|maiden |display |nick)?name$|"
                     r"^(f|l|m)name$|^(first|last|middle|given|family|sur)( name)?$|"
@@ -80,14 +83,31 @@ def normalize_header(header) -> str:
     return re.sub(r"[^a-z0-9#']+", " ", h.lower()).strip()
 
 
+# "Admission ID" is an identifier and "Discharge Type" a category, not dates.
+_ID_SUFFIX = re.compile(r"(^| )(id|identifier|no|num|number|#)$")
+_CATEGORY_SUFFIX = re.compile(r"(^| )(type|status|disposition|category|outcome|result|method|class|level|kind|"
+                              r"flag)$")
+
+
 def classify_header(header) -> str | None:
     h = normalize_header(header)
     if not h:
         return None
     for ctype, rx in _COMPILED:
         if rx.search(h):
+            if ctype == "date" and _ID_SUFFIX.search(h):
+                return "other_id"
+            if ctype == "date" and _CATEGORY_SUFFIX.search(h):
+                return "category"
             return ctype
-    return None
+    return "category" if _CATEGORY_SUFFIX.search(h) else None
+
+
+def is_category(values: list) -> bool:
+    """A handful of values repeated down the column, like "Successful Completion" / "Medical"."""
+    vals = [str(v).strip() for v in values if v is not None and str(v).strip()]
+    distinct = set(vals)
+    return bool(vals) and len(distinct) <= 25 and len(vals) >= 2 * len(distinct)
 
 
 _NUMERIC = re.compile(r"^[-+$€£]?\s*\d{1,6}(?:[.,]\d+)?\s*%?$|^[-+$€£]?\s*\d{1,3}(?:,\d{3})+(?:\.\d+)?$")

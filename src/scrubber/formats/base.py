@@ -26,6 +26,8 @@ class Context:
     rel: str                 # input-relative path of the file being processed
     out_rel: str             # scrubbed output-relative path (safe to show in reports)
     tally: Tally = field(default_factory=Tally)
+    # labels kept as they are from category columns ("Successful Completion"): not re-flagged
+    kept: set = field(default_factory=set)
 
     @property
     def pseudo(self) -> Pseudonymizer:

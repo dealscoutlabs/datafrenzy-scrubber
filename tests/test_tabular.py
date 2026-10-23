@@ -16,7 +16,10 @@ def test_header_classification():
               "Serial Number": "device", "Website": "url", "Street Address": "address", "City": "city",
               "County": "city", "State": "state", "ZIP": "zip", "Visit Date": "date", "Age": "age",
               "Employer": "organization", "Notes": "notes", "Claim Number": "other_id", "Username": "other_id",
-              "Account Owner": "person_name", "Created By": "person_name", "Created Date": "date", "Copay": None}
+              "Account Owner": "person_name", "Created By": "person_name", "Created Date": "date", "Copay": None,
+              "Admission Id": "other_id", "Discharge Type": "category", "Discharge Date": "date",
+              "Admission Date": "date", "Assigned Therapist": "person_name", "Date Signed": "date",
+              "Current Service Facility Name": "organization", "Visit Status": "category"}
     got = {h: classify_header(h) for h in expect}
     assert got == expect
 
@@ -73,7 +76,8 @@ def test_content_based_column_detection(ctx):
     assert [r[1] for r in out[1:]] == [str(i) for i in range(30)]
 
 
-def test_xlsx_formatting_and_structure_preserved(synth, ctx):
+def test_xlsx_formatting_and_structure_preserved(synth, ctx, monkeypatch):
+    monkeypatch.setitem(ctx.cfg["tabular"], "tidy", False)  # the original layout, cell for cell
     people = [synth.person() for _ in range(10)]
     src = synth.xlsx_bytes(people)
     out = scrub_xlsx_bytes(src, ctx, "patients.xlsx")
@@ -100,3 +104,35 @@ def test_xlsx_formatting_and_structure_preserved(synth, ctx):
         for secret in (p.name, p.email, p.ssn, p.mrn, p.phone):
             assert secret not in flat
     assert ctx.tally.issues == []
+
+
+def test_discharge_report_columns(synth, ctx):
+    """Shaped like a real treatment-center discharge report: IDs, categories and therapists keep their meaning."""
+    import datetime as dt
+
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Discharges"
+    ws.append(["Admission Id", "Current Service Facility Name", "Discharge Date", "Admission Date", "Patient Name",
+               "Assigned Therapist", "Discharge Type", "Totals"])
+    people = [synth.person() for _ in range(12)]
+    types = ["Successful Completion", "External Transfer", "Medical", "Against Treatment Advice (ATA)"]
+    for i, p in enumerate(people):
+        ws.append([645000 + i * 37, "Lakeshore Recovery Center of TX", dt.datetime(2026, 5, 1 + i),
+                   dt.datetime(2026, 3, 1 + i), p.name, people[-1 - i].name if i % 3 else None, types[i % 4], 1])
+    buf = io.BytesIO()
+    wb.save(buf)
+    out = load_workbook(io.BytesIO(scrub_xlsx_bytes(buf.getvalue(), ctx, "discharge.xlsx")))["Discharges"]
+    assert [c.value for c in out[1]] == ["Patient ID", "Facility", "Admission Year", "Discharge Year",
+                                         "Length of Stay (Days)", "Assigned Therapist", "Discharge Type", "Totals"]
+    rows = list(out.iter_rows(min_row=2, values_only=True))
+    assert sorted(r[4] for r in rows) == sorted((dt.datetime(2026, 5, 1 + i) - dt.datetime(2026, 3, 1 + i)).days
+                                                for i in range(12))
+    for pid, fac, adm, dis, los, ther, dtype, total in rows:
+        assert re.fullmatch(r"Patient \d+", pid) and fac == "Facility A" and adm == dis == 2026
+        assert ther is None or re.fullmatch(r"Therapist \d+", ther), ther
+        assert dtype in types and total == 1
+    flat = " ".join(str(v) for r in rows for v in r)
+    for p in people:
+        assert p.last not in flat
