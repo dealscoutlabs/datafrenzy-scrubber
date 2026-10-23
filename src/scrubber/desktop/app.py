@@ -81,8 +81,9 @@ def configure_bundle() -> None:
 
 @dataclass
 class Settings:
-    input: str = ""
+    input: str = ""   # unused since batches (kept so older settings files still load)
     output: str = ""
+    mode: str = "simple"  # simple: add files, get scrubbed files | detailed: review screens too
 
     @classmethod
     def load(cls) -> "Settings":
@@ -102,11 +103,16 @@ def config_path() -> Path:
     return d / "scrubber.yaml"
 
 
+def batch_dir() -> Path:
+    """The batch being worked on: copies of the added files, the scrubbed output and work files.
+    "New batch" deletes it; the saved copy the user chose a folder for stays where they put it."""
+    return app_dir() / "batch"
+
+
 def current_paths():
     from ..pipeline import Paths
-    s = Settings.load()
-    return Paths(Path(s.input or app_dir() / "no-input-chosen"), Path(s.output or app_dir() / "export"),
-                 app_dir() / "work", app_dir() / "state")
+    b = batch_dir()
+    return Paths(b / "input", b / "output", b / "work", app_dir() / "state")
 
 
 # ------------------------------------------------------------------ network lock
@@ -174,25 +180,120 @@ class Worker:
             time.sleep(1.5)
 
 
-# ------------------------------------------------------------------ drag and drop
+# ------------------------------------------------------------------ batches
 
-def dropped_input(paths: list[str]) -> Path:
-    """What to scrub after a drop: a single folder is used as it is; loose files (or several
-    folders) are copied into one private folder in the app's data folder. The previous
-    dropped copy is deleted first, so copies of originals don't pile up."""
+def _free_name(folder: Path, name: str) -> Path:
+    target = folder / name
+    stem, suffix, n = Path(name).stem, Path(name).suffix, 2
+    while target.exists():
+        target = folder / f"{stem} ({n}){suffix}"
+        n += 1
+    return target
+
+
+def add_to_batch(paths: list[str]) -> int:
+    """Copy files and folders into the batch (originals are never touched) and start scrubbing.
+    Returns how many items were added."""
     import shutil
     items = [Path(p) for p in paths if p and Path(p).exists()]
-    if len(items) == 1 and items[0].is_dir():
-        return items[0]
-    target = app_dir() / "dropped"
-    shutil.rmtree(target, ignore_errors=True)
-    target.mkdir(parents=True)
+    inbox = current_paths().input
+    inbox.mkdir(parents=True, exist_ok=True)
+    meta = batch_info()
+    if not meta.get("started"):
+        meta["started"] = time.time()
+        _save_batch_info(meta)
     for item in items:
+        target = _free_name(inbox, item.name)
         if item.is_dir():
-            shutil.copytree(item, target / item.name, dirs_exist_ok=True)
+            shutil.copytree(item, target)
         else:
-            shutil.copy2(item, target / item.name)
+            shutil.copy2(item, target)
+    if items:
+        request_scrub()
+    return len(items)
+
+
+def request_scrub() -> None:
+    req = current_paths().work / "requests"
+    req.mkdir(parents=True, exist_ok=True)
+    (req / "rerun.json").write_text(json.dumps({"requested_at": time.time()}))
+
+
+def batch_info() -> dict:
+    try:
+        return json.loads((batch_dir() / "batch.json").read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_batch_info(meta: dict) -> None:
+    batch_dir().mkdir(parents=True, exist_ok=True)
+    (batch_dir() / "batch.json").write_text(json.dumps(meta, indent=2))
+
+
+def batch_counts() -> dict:
+    from ..state import Store
+    db = current_paths().state / "state.db"
+    if not db.exists():
+        return {"files": 0}
+    files = [f for f in Store(db).files() if not f["parent"]]
+    by = {}
+    for f in files:
+        by[f["status"]] = by.get(f["status"], 0) + 1
+    return {"files": len(files), "exported": by.get("done", 0), "review": by.get("review", 0),
+            "not_exported": sum(by.get(k, 0) for k in ("quarantined", "failed", "rejected")),
+            "records": sum(f["records"] or 0 for f in files)}
+
+
+def history() -> list[dict]:
+    try:
+        return json.loads((app_dir() / "history.json").read_text())
+    except (OSError, ValueError):
+        return []
+
+
+def _record_history(entry: dict) -> None:
+    items = [h for h in history() if h.get("id") != entry["id"]] + [entry]
+    (app_dir() / "history.json").write_text(json.dumps(items[-500:], indent=2))
+
+
+def _history_entry() -> dict | None:
+    """Counts and where the output was saved - no file contents and no original file names."""
+    meta = batch_info()
+    if not meta.get("started"):
+        return None
+    return {"id": str(int(meta["started"])), "started": meta["started"], "updated": time.time(),
+            "saved_to": meta.get("saved_to", []), **batch_counts()}
+
+
+def save_output(dest: str) -> Path:
+    """Copy the batch's export (scrubbed files, manifest, report) into a new folder inside dest."""
+    import shutil
+    stamp = time.strftime("%Y-%m-%d %H.%M")
+    target = _free_name(Path(dest), f"Data Frenzy Scrubbed {stamp}")
+    shutil.copytree(current_paths().output, target)
+    meta = batch_info()
+    meta.setdefault("saved_to", []).append(str(target))
+    _save_batch_info(meta)
+    entry = _history_entry()
+    if entry:
+        _record_history(entry)
     return target
+
+
+def new_batch() -> None:
+    """Remember the batch's counts in History, then delete its copies, output and work files."""
+    import shutil
+    from ..state import Store
+    entry = _history_entry()
+    if entry and entry["files"]:
+        _record_history(entry)
+    db = current_paths().state / "state.db"
+    if db.exists():
+        store = Store(db)
+        store.clear_batch()
+        store.close()
+    shutil.rmtree(batch_dir(), ignore_errors=True)
 
 
 def bind_drop(window) -> None:
@@ -203,12 +304,8 @@ def bind_drop(window) -> None:
         files = (event.get("dataTransfer") or {}).get("files") or []
         paths = [f.get("pywebviewFullPath") for f in files if f.get("pywebviewFullPath")]
         print(f"drop: {len(files)} item(s), {len(paths)} path(s)", file=sys.stderr, flush=True)
-        if not paths:
-            return
-        settings = Settings.load()
-        settings.input = str(dropped_input(paths))
-        settings.save()
-        window.evaluate_js("location.reload()")
+        if paths and add_to_batch(paths):
+            window.evaluate_js("location.reload()")
 
     window.dom.document.events.drop += DOMEventHandler(on_drop, True, True)
 
@@ -218,48 +315,50 @@ def bind_drop(window) -> None:
 class Api:
     """Called from the page (static/desktop.js) through pywebview."""
 
-    def __init__(self):
+    def __init__(self, worker=None):
         self.window = None
+        self.worker = worker
 
-    def _pick(self) -> str | None:
+    def _folder(self) -> str | None:
         from webview import FileDialog
         result = self.window.create_file_dialog(FileDialog.FOLDER)
         return result[0] if result else None
 
-    def choose_input(self):
-        path = self._pick()
-        if path:
-            s = Settings.load()
-            s.input = path
-            s.save()
-        return path
-
-    def choose_files(self):
+    def add_files(self):
         from webview import FileDialog
         picked = self.window.create_file_dialog(FileDialog.OPEN, allow_multiple=True)
-        if not picked:
-            return None
-        s = Settings.load()
-        s.input = str(dropped_input(list(picked)))
-        s.save()
-        return s.input
+        return add_to_batch(list(picked or []))
 
-    def choose_output(self):
-        path = self._pick()
-        if path:
-            s = Settings.load()
-            s.output = path
-            s.save()
-        return path
+    def add_folder(self):
+        folder = self._folder()
+        return add_to_batch([folder]) if folder else 0
+
+    def save_output(self):
+        dest = self._folder()
+        if not dest:
+            return None
+        target = save_output(dest)
+        _reveal(target)
+        return str(target)
 
     def open_output(self):
-        out = Path(Settings.load().output)
+        out = current_paths().output
         out.mkdir(parents=True, exist_ok=True)
-        if os.name == "nt":
-            os.startfile(out)  # noqa: S606 - opens Explorer on the export folder
-        elif sys.platform == "darwin":
-            subprocess.run(["open", str(out)])
+        _reveal(out)
         return True
+
+    def new_batch(self):
+        if self.worker is not None and self.worker.busy():
+            return None
+        new_batch()
+        return True
+
+
+def _reveal(folder: Path) -> None:
+    if os.name == "nt":
+        os.startfile(folder)  # noqa: S606 - opens Explorer on the folder
+    elif sys.platform == "darwin":
+        subprocess.run(["open", str(folder)])
 
 
 def serve_in_thread():
@@ -290,6 +389,20 @@ class DesktopHooks:
     def lock(self) -> tuple[bool, str]:
         return network_lock()
 
+    def mode(self) -> str:
+        return "detailed" if Settings.load().mode == "detailed" else "simple"
+
+    def set_mode(self, mode: str) -> None:
+        s = Settings.load()
+        s.mode = "detailed" if mode == "detailed" else "simple"
+        s.save()
+
+    def batch(self) -> dict:
+        return {**batch_info(), **batch_counts()}
+
+    def history(self) -> list[dict]:
+        return list(reversed(history()))
+
 
 def main(argv: list[str] | None = None) -> int:
     mp.freeze_support()
@@ -310,8 +423,9 @@ def main(argv: list[str] | None = None) -> int:
         return run(out)
     import webview
     port = serve_in_thread()
-    threading.Thread(target=Worker().loop, daemon=True).start()
-    api = Api()
+    worker = Worker()
+    threading.Thread(target=worker.loop, daemon=True).start()
+    api = Api(worker)
     api.window = webview.create_window(APP_NAME, f"http://127.0.0.1:{port}/", js_api=api, width=1240, height=880,
                                        min_size=(900, 640))
     api.window.events.loaded += lambda: bind_drop(api.window)  # every page load gets the drop handler

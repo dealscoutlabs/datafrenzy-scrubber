@@ -37,6 +37,9 @@
   .lock { display:inline-flex; align-items:center; gap:6px; font-size:13px; padding:4px 10px; border-radius:99px;
           background:var(--accent-soft); color:var(--accent); }
   .lock.off { background:var(--bad-soft); color:var(--bad); }
+  form.mode { display:inline-flex; padding:3px; border-radius:99px; background:var(--surface-2); border:1px solid var(--line); }
+  form.mode button { background:transparent; color:var(--muted); padding:5px 12px; border-radius:99px; font-size:13px; }
+  form.mode button.on { background:var(--accent); color:var(--accent-ink); }
   .lock i { width:7px; height:7px; border-radius:50%; background:currentColor; display:inline-block; }
   main { max-width:1120px; margin:0 auto; padding:26px 20px 70px; }
   h1 { font-size:26px; line-height:1.25; letter-spacing:-.02em; margin:4px 0 6px; }
@@ -97,13 +100,23 @@
     <span class="name">Data<span>Frenzy</span> Scrubber</span>
   </a>
   {% if lock_state is not none %}<span class="lock {{ '' if lock_state else 'off' }}" title="{{ lock_text }}"><i></i>{{ 'Offline' if lock_state else 'Internet block missing' }}</span>{% endif %}
+  {% if mode == 'detailed' %}
   <nav class="tabs" aria-label="Sections">
     <a href="/" class="{{ 'on' if path == '/' else '' }}">Home</a>
     <a href="/review" class="{{ 'on' if path.startswith('/review') else '' }}">Review{% if nav_pending %}<span class="badge">{{ nav_pending }}</span>{% endif %}</a>
     <a href="/samples" class="{{ 'on' if path == '/samples' else '' }}">Samples</a>
     <a href="/quarantine" class="{{ 'on' if path == '/quarantine' else '' }}">Not exported</a>
     <a href="/deny-list" class="{{ 'on' if path == '/deny-list' else '' }}">Deny list</a>
+    {% if desktop %}<a href="/history" class="{{ 'on' if path == '/history' else '' }}">History</a>{% endif %}
   </nav>
+  {% endif %}
+  {% if desktop %}
+  <form method="post" action="/mode" class="mode" title="Simple: add files, save the scrubbed copies. Detailed: review screens, samples, deny list and history.">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button type="submit" name="mode" value="simple" class="{{ 'on' if mode == 'simple' else '' }}" aria-pressed="{{ 'true' if mode == 'simple' else 'false' }}">Simple</button>
+    <button type="submit" name="mode" value="detailed" class="{{ 'on' if mode == 'detailed' else '' }}" aria-pressed="{{ 'true' if mode == 'detailed' else 'false' }}">Detailed</button>
+  </form>
+  {% endif %}
 </div></header>
 <main>
 {% if msg %}<div class="msg" role="status">{{ msg }}</div>{% endif %}

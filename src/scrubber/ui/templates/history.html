@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}History{% endblock %}
+{% block body %}
+<h1>Past batches</h1>
+<p class="lede">What each batch did and where you saved it. The app keeps only these counts, not the files or their names.</p>
+{% if batches %}
+<div class="card wrap"><table>
+  <tr><th>Started</th><th class="num-cell">Files</th><th class="num-cell">Ready</th><th class="num-cell">Needed OK</th>
+    <th class="num-cell">Not exported</th><th class="num-cell">Records</th><th>Saved to</th></tr>
+  {% for b in batches %}
+  <tr><td>{{ b.started|timestamp }}</td><td class="num-cell">{{ b.files }}</td><td class="num-cell">{{ b.exported }}</td>
+    <td class="num-cell">{{ b.review }}</td><td class="num-cell">{{ b.not_exported }}</td>
+    <td class="num-cell">{{ "{:,}".format(b.records or 0) }}</td>
+    <td class="small">{% for p in b.saved_to %}{{ p }}{% if not loop.last %}<br>{% endif %}{% else %}<span class="muted">not saved</span>{% endfor %}</td></tr>
+  {% endfor %}
+</table></div>
+{% else %}<div class="card">No batches yet. Finished batches show up here when you save them or start a new one.</div>{% endif %}
+{% endblock %}

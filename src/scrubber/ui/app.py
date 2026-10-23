@@ -41,6 +41,7 @@ def _mark(text: str | None) -> Markup:
 
 
 _env.filters["mark"] = _mark
+_env.filters["timestamp"] = lambda t: time.strftime("%b %d, %Y %I:%M %p", time.localtime(float(t or 0)))
 
 
 def file_id(rel: str) -> str:
@@ -79,7 +80,8 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
         html = _env.get_template(name).render(
             csrf=csrf, version=__version__, reviewer=request.cookies.get("reviewer", ""),
             msg=request.query_params.get("msg", ""), desktop=desktop is not None, path=request.url.path,
-            nav_pending=nav_pending(), lock_state=lock_state, lock_text=lock_text, **ctx)
+            nav_pending=nav_pending(), lock_state=lock_state, lock_text=lock_text,
+            mode=desktop.mode() if desktop is not None else "detailed", **ctx)
         return HTMLResponse(html)
 
     def back(url: str, msg: str, reviewer: str | None = None) -> RedirectResponse:
@@ -134,15 +136,29 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
         status = json.loads(status_path.read_text()) if status_path.exists() else {}
         requested = (paths.work / "requests" / "rerun.json").exists()
         running = status.get("state") == "running" and time.time() - status.get("updated", 0) < 600
-        app_info = None
         if desktop is not None:
-            st = desktop.settings()
             ok, why = desktop.lock()
-            app_info = {"input": st.input, "output": st.output, "lock_ok": ok, "lock": why,
-                        "input_ok": bool(st.input) and Path(st.input).is_dir()}
+            batch = desktop.batch()
+            rows = [{"name": f["rel"], "status": f["status"], "out_rel": f["out_rel"], "reason": f["reason"] or ""}
+                    for f in sorted(r.store.files(), key=lambda f: f["rel"].lower()) if not f["parent"]]
+            pending_fids = [file_id(rv["rel"]) for rv in r.store.reviews("pending")]
+            return page("desktop_home.html", request, s=s, status=status, requested=requested, running=running,
+                        refresh=running or requested, lock_ok=ok, lock=why, batch=batch, rows=rows[:300],
+                        more_rows=max(0, len(rows) - 300), pending_fids=pending_fids, pending=len(pending_fids))
         return page("index.html", request, s=s, status=status, requested=requested, running=running,
-                    refresh=running or requested, app=app_info, pending=len(r.store.reviews("pending")),
+                    refresh=running or requested, app=None, pending=len(r.store.reviews("pending")),
                     now=time.time())
+
+    @app.post("/mode")
+    async def set_mode(csrf_token: str = Form(...), mode: str = Form("simple")):
+        check_form(csrf_token, None)
+        if desktop is not None:
+            desktop.set_mode(mode)
+        return RedirectResponse("/", status_code=303)
+
+    @app.get("/history", response_class=HTMLResponse)
+    async def history(request: Request):
+        return page("history.html", request, batches=desktop.history() if desktop is not None else [])
 
     @app.get("/review", response_class=HTMLResponse)
     async def review_list(request: Request):
@@ -185,7 +201,7 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
 
     @app.post("/review-bulk")
     async def decide_many(csrf_token: str = Form(...), reviewer: str = Form(""), decision: str = Form(...),
-                          fids: list[str] = Form([]), note: str = Form("")):
+                          fids: list[str] = Form([]), note: str = Form(""), next: str = Form("/review")):
         check_form(csrf_token, reviewer)
         if decision not in ("approve", "reject"):
             raise HTTPException(404)
@@ -203,7 +219,7 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
         r.write_summary()
         word = "approved and exported" if decision == "approve" else "rejected (not exported)"
         msg = f"{done} file{'s' if done != 1 else ''} {word}" + (f"; {failed} were already decided" if failed else "")
-        return back("/review", msg if done or failed else "No files were selected", reviewer)
+        return back("/" if next == "/" else "/review", msg if done or failed else "No files were selected", reviewer)
 
     @app.get("/samples", response_class=HTMLResponse)
     async def samples(request: Request):
@@ -249,12 +265,13 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
             ok, why = desktop.lock()
             if not ok:
                 return back("/", f"Can't start: {why}")
-            if not Path(desktop.settings().input or "/nonexistent").is_dir():
-                return back("/", "Choose the folder to scrub first.")
+            if not paths.input.is_dir() or not any(paths.input.iterdir()):
+                return back("/", "Add files to scrub first.")
         req = paths.work / "requests"
         req.mkdir(parents=True, exist_ok=True)
         (req / "rerun.json").write_text(json.dumps({"requested_at": time.time()}))
-        return back("/", "Re-run requested. The scrubber picks it up within a few seconds.")
+        return back("/", "Starting…" if desktop is not None else
+                    "Re-run requested. The scrubber picks it up within a few seconds.")
 
     @app.get("/static/{name}.js")
     async def static_js(name: str):

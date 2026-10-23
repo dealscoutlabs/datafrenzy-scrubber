@@ -244,6 +244,14 @@ class Store:
                       " VALUES (?,?,?,?,?,?,?)", (rel, row["out_rel"] if row else None, status, by, now, note,
                                                    row["reasons"] if row else "[]"))
 
+    def clear_batch(self) -> None:
+        """Desktop app "New batch": forget the files, reviews, samples and harvested names of the
+        last batch. Pseudonyms stay, so the same person keeps the same token in the next batch."""
+        with self.tx() as c:
+            for table in ("files", "shards", "quarantine", "review", "review_log", "samples", "misses",
+                          "known_entities"):
+                c.execute(f"DELETE FROM {table}")  # noqa: S608 - fixed table names
+
     def review_log(self) -> list[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM review_log ORDER BY decided_at").fetchall()
 

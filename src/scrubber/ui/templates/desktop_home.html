@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block style %}
+  .drop { display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:10px;
+          min-height:230px; border:2px dashed var(--line); border-radius:16px; background:var(--bg);
+          padding:24px; color:var(--muted); width:100%; }
+  .drop.small { min-height:0; flex-direction:row; flex-wrap:wrap; justify-content:space-between; padding:14px 18px; text-align:left; }
+  .drop.over { border-color:var(--accent); background:var(--accent-soft); color:var(--fg); }
+  .drop strong { color:var(--fg); font-size:18px; }
+  .drop.small strong { font-size:15px; }
+  .drop svg { color:var(--accent); }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .bar { height:10px; border-radius:99px; background:var(--surface-2); overflow:hidden; margin:10px 0 6px; }
+  .bar > i { display:block; height:100%; background:var(--accent); border-radius:99px; }
+  .note { font-size:13px; color:var(--muted); }
+  .head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; }
+  .head h2 { margin:0; }
+  .ask { background:var(--warn-soft); border:1px solid color-mix(in srgb, var(--warn) 30%, transparent); border-radius:12px;
+         padding:14px; margin:0 0 16px; }
+  .ask p { margin:0 0 10px; }
+  .ask input[type=text] { width:200px; }
+  .status { display:inline-block; font-size:12px; font-weight:600; border-radius:99px; padding:2px 10px; white-space:nowrap; }
+  .s-done { background:var(--accent-soft); color:var(--accent); }
+  .s-review { background:var(--warn-soft); color:var(--warn); }
+  .s-out { background:var(--bad-soft); color:var(--bad); }
+  .s-wait { background:var(--surface-2); color:var(--muted); }
+  td.name { word-break:break-word; }
+  .removed { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:4px 22px; }
+  .removed div { display:grid; grid-template-columns:1fr auto; gap:2px 10px; padding:7px 0; border-bottom:1px solid var(--line); font-size:14px; }
+  .removed small { grid-column:1 / -1; height:4px; border-radius:99px; background:var(--surface-2); overflow:hidden; }
+  .removed small i { display:block; height:100%; background:var(--accent); }
+  details summary { cursor:pointer; font-weight:600; }
+{% endblock %}
+{% block body %}
+{% set pct = ((status.get('done', 0) / status.get('total')) * 100)|round|int if status.get('total') else 0 %}
+{% set busy = running or requested %}
+<h1>Scrub your files</h1>
+<p class="lede">Add files and they're scrubbed right away, on this computer: names, dates, ID numbers and other personal
+details are removed from a copy. Then save the cleaned files wherever you like. Your originals are never changed.</p>
+{% if not lock_ok %}<div class="msg" role="alert">{{ lock }}</div>{% endif %}
+
+<section class="card" aria-label="Add files">
+  <div id="dropzone" class="drop {{ 'small' if rows else '' }}">
+    {% if not rows %}<svg width="46" height="46" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3a1 1 0 0 1 1 1v8.6l2.3-2.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.4l2.3 2.3V4a1 1 0 0 1 1-1zM5 15a1 1 0 0 1 1 1v2h12v-2a1 1 0 1 1 2 0v2.5A1.5 1.5 0 0 1 18.5 20h-13A1.5 1.5 0 0 1 4 18.5V16a1 1 0 0 1 1-1z"/></svg>{% endif %}
+    <strong>{{ 'Add more files to this batch' if rows else 'Drop files or folders here' }}</strong>
+    <div class="row" style="justify-content:center">
+      <button type="button" data-app="add_files" {{ 'disabled' if not lock_ok else '' }}>Add files</button>
+      <button type="button" class="secondary" data-app="add_folder" {{ 'disabled' if not lock_ok else '' }}>Add a folder</button>
+    </div>
+    {% if not rows %}<span class="small">Email, spreadsheets, Slack exports, Word, PDF, photos and scans · as many as you like</span>{% endif %}
+  </div>
+</section>
+
+{% if rows %}
+<section class="card" aria-labelledby="batch-h">
+  <div class="head">
+    <h2 id="batch-h">This batch · {{ batch.files }} file{{ 's' if batch.files != 1 }}</h2>
+    <div class="row">
+      <button type="button" class="big" data-app="save_output" {{ 'disabled' if busy or not batch.exported else '' }}>Save cleaned files…</button>
+      <button type="button" class="secondary" data-app="new_batch" {{ 'disabled' if busy else '' }}
+        data-confirm="Start a new batch? The files in this one are cleared from the app (save the cleaned files first). Your originals and anything you saved stay where they are.">New batch</button>
+    </div>
+  </div>
+
+  {% if running %}
+    <b>Scrubbing… {{ pct }}%</b>
+    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ pct }}"><i style="width:{{ pct }}%"></i></div>
+    <p class="note">{{ status.get('phase', '')|capitalize }}{% if status.get('total') %} · {{ status.done }} of {{ status.total }}{% endif %}. You can keep using your computer.</p>
+  {% elif requested %}
+    <p><b>Starting…</b></p>
+  {% else %}
+    <p style="margin-top:0"><b class="ok">{{ batch.exported }} ready</b>{% if batch.review %} · <b class="pending">{{ batch.review }} need{{ 's' if batch.review == 1 }} your OK</b>{% endif %}{% if batch.not_exported %} · <b class="rejected">{{ batch.not_exported }} not exported</b>{% endif %}
+    {% if batch.saved_to %}<br><span class="note">Saved to {{ batch.saved_to[-1] }}</span>{% endif %}</p>
+  {% endif %}
+
+  {% if pending and not busy %}
+  <form method="post" action="/review-bulk" class="ask">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="hidden" name="decision" value="approve">
+    <input type="hidden" name="next" value="/">
+    {% for fid in pending_fids %}<input type="hidden" name="fids" value="{{ fid }}">{% endfor %}
+    <p><b>{{ pending }} file{{ 's' if pending != 1 }} need{{ 's' if pending == 1 }} your OK.</b> The double-check spotted
+      something it wasn't sure about, so {{ 'these are' if pending != 1 else 'it is' }} held back until a person agrees.</p>
+    <div class="row">
+      <label>Your name <input type="text" name="reviewer" value="{{ reviewer }}" required></label>
+      <button type="submit">Include {{ 'them' if pending != 1 else 'it' }}</button>
+      <a class="button secondary" href="/review">Look first</a>
+    </div>
+  </form>
+  {% endif %}
+
+  <div class="wrap"><table>
+    <tr><th>File</th><th>Status</th>{% if mode == 'detailed' %}<th>Cleaned copy</th>{% endif %}</tr>
+    {% for r in rows %}
+    {% if r.status == 'done' %}{% set cls, label = 's-done', 'Ready' %}
+    {% elif r.status == 'review' %}{% set cls, label = 's-review', 'Needs your OK' %}
+    {% elif r.status in ('quarantined', 'failed', 'rejected') %}{% set cls, label = 's-out', 'Not exported' %}
+    {% else %}{% set cls, label = 's-wait', 'Scrubbing…' %}{% endif %}
+    <tr><td class="name">{{ r.name }}{% if cls == 's-out' and r.reason %}<div class="note">{{ r.reason }}</div>{% endif %}</td>
+      <td><span class="status {{ cls }}">{{ label }}</span></td>
+      {% if mode == 'detailed' %}<td class="name small">{{ r.out_rel or '' }}</td>{% endif %}</tr>
+    {% endfor %}
+    {% if more_rows %}<tr><td colspan="3" class="note">and {{ more_rows }} more</td></tr>{% endif %}
+  </table></div>
+</section>
+
+{% if mode == 'detailed' and batch.exported %}
+<details class="card">
+  <summary>What was removed, by HIPAA Safe Harbor identifier</summary>
+  {% set top = (s.identifiers|map(attribute='removed')|max) or 1 %}
+  <div class="removed" style="margin-top:14px">
+    {% for c in s.identifiers %}
+      <div><span>{{ c.number }}. {{ c.identifier }}</span><b>{{ "{:,}".format(c.removed) }}</b><small><i style="width:{{ (100 * c.removed / top)|round|int }}%"></i></small></div>
+    {% endfor %}
+  </div>
+  <p class="small muted" style="margin:14px 0 0"><a href="#" data-app="open_output" data-reload="no">Open the batch's export folder</a> ·
+  <a href="/reports/deidentification-report.html">de-identification report</a> · <a href="/reports/deidentification-report.pdf">PDF</a> ·
+  <a href="/reports/manifest.csv">data manifest (CSV)</a></p>
+</details>
+{% endif %}
+{% endif %}
+{% endblock %}

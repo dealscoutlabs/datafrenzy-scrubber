@@ -6,7 +6,8 @@ function wire() {
     el.addEventListener("click", function (ev) {
       ev.preventDefault();
       var fn = window.pywebview && window.pywebview.api && window.pywebview.api[el.dataset.app];
-      if (!fn) { return; }
+      if (!fn || el.disabled) { return; }
+      if (el.dataset.confirm && !window.confirm(el.dataset.confirm)) { return; }
       fn().then(function (result) { if (result && el.dataset.reload !== "no") { location.reload(); } });
     });
   });
