@@ -155,9 +155,11 @@ class TextScrubber:
             run(group)
         return results  # type: ignore[return-value]
 
-    def plan_many(self, texts: list[str], tally: Tally | None = None) -> list[list[tuple[int, int, str]]]:
+    def plan_many(self, texts: list[str], tally: Tally | None = None, findings_out: list | None = None
+                  ) -> list[list[tuple[int, int, str]]]:
         """Like scrub_many, but returns (start, end, replacement) spans instead of new text.
-        Used where text is split over formatted pieces (Word runs, PDF words)."""
+        Used where text is split over formatted pieces (Word runs, PDF words).
+        findings_out, if given, receives each text's findings (to count only the ones used)."""
         out = []
         for text, findings in zip(texts, self.detector.detect_many(texts)):
             spans = []
@@ -166,8 +168,13 @@ class TextScrubber:
                 spans.append((f.start, f.end, self.replacement(f.etype, f.text)))
             if tally is not None:
                 self._count(findings, tally)
+            if findings_out is not None:
+                findings_out.append(findings)
             out.append(spans)
         return out
+
+    def count(self, findings: list[Finding], tally: Tally) -> None:
+        self._count(findings, tally)
 
     def _count(self, findings: list[Finding], tally: Tally) -> None:
         for f in findings:

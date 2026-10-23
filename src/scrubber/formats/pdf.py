@@ -42,6 +42,36 @@ def _page_text(words) -> tuple[str, list[tuple[int, int]]]:
     return "".join(parts), offsets
 
 
+def _row_text(words) -> tuple[str, list[tuple[int, int]], list[int]]:
+    """The page read row by row, left to right, as a table is read. Forms often store each
+    cell as its own text block ("QUINTERO", "MARISOL", "ANNE R"), so a name split across cells only
+    reads as a name here. Returns text, word offsets and the word index for each offset."""
+    order = sorted(range(len(words)), key=lambda i: ((words[i][1] + words[i][3]) / 2, words[i][0]))
+    rows: list[list[int]] = []
+    for i in order:
+        x0, y0, x1, y1 = words[i][:4]
+        mid = (y0 + y1) / 2
+        if rows:
+            r = words[rows[-1][0]]
+            if abs(mid - (r[1] + r[3]) / 2) <= max(1.0, 0.4 * min(y1 - y0, r[3] - r[1])):
+                rows[-1].append(i)
+                continue
+        rows.append([i])
+    parts, offsets, index, pos = [], [], [], 0
+    for row in rows:
+        for n, i in enumerate(sorted(row, key=lambda k: words[k][0])):
+            if n:
+                parts.append(" ")
+                pos += 1
+            offsets.append((pos, pos + len(words[i][4])))
+            index.append(i)
+            parts.append(words[i][4])
+            pos += len(words[i][4])
+        parts.append("\n")
+        pos += 1
+    return "".join(parts), offsets, index
+
+
 def _garbage_share(text: str) -> float:
     if not text:
         return 0.0
@@ -74,13 +104,23 @@ def scrub_page(page, ctx: Context, item: str) -> tuple[list[str], str]:
     text, offsets = _page_text(words)
     if _garbage_share(text) > UNREADABLE_SHARE:
         ctx.issue(f"{item}: text layer is unreadable (unusual font encoding) - check this page by eye")
-    spans = ctx.scrubber.plan_many([text], ctx.tally)[0] if text.strip() else []
-    removed, overlays = [], []
-    for start, end, repl in spans:
-        hit = [i for i, (a, b) in enumerate(offsets) if a < end and start < b]
-        if not hit:
+    rtext, roffsets, rindex = _row_text(words)
+    found: list = []
+    planned = ctx.scrubber.plan_many([text, rtext], None, found) if text.strip() else [[], []]
+    found = found or [[], []]
+    # reading order first, then whatever only the row-by-row reading found
+    work = [(text, start, end, repl, [i for i, (a, b) in enumerate(offsets) if a < end and start < b], f)
+            for (start, end, repl), f in zip(planned[0], found[0])]
+    work += [(rtext, start, end, repl, [rindex[k] for k, (a, b) in enumerate(roffsets) if a < end and start < b], f)
+             for (start, end, repl), f in zip(planned[1], found[1])]
+    spans = [w for w in work if w[4]]
+    removed, overlays, covered = [], [], set()
+    for source, start, end, repl, hit, finding in spans:
+        if set(hit) <= covered:
             continue
-        removed.append(text[start:end])
+        covered |= set(hit)
+        ctx.scrubber.count([finding], ctx.tally)
+        removed.append(source[start:end])
         lines: dict = {}
         for i in hit:
             w = words[i]

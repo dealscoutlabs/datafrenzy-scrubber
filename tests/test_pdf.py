@@ -83,3 +83,27 @@ def test_scanned_pdf_rebuilt_from_redacted_images(ctx, synth):
 def test_blank_scan_page_still_rebuilt(ctx):
     doc = pymupdf.open(stream=scrub_pdf_bytes(scanned_pdf_bytes(), ctx, "blank.pdf"), filetype="pdf")
     assert doc.page_count == 1
+
+
+def test_payroll_table_names_split_across_cells(ctx):
+    """Tax forms print each cell as its own text block, in capitals: "QUINTERO" | "MARISOL" | "ANNE R"."""
+    import pymupdf
+
+    from scrubber.formats.pdf import scrub_pdf_bytes
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 60), "Copy  Do Not File")
+    page.insert_text((72, 90), "LAKESHORE CAMPUSES OF OHIO")
+    for n, (last, first, mid) in enumerate([("FENWICK", "MARISOL", "ANNE R"), ("OKAFOR", "DESMOND", "LEE R"),
+                                            ("CALLOWAY", "QUIL", "R")]):
+        y = 140 + 30 * n
+        page.insert_text((72, y), last)
+        page.insert_text((200, y), first)
+        page.insert_text((330, y), mid)
+        page.insert_text((450, y), f"{1000 + n}.25")
+    data = doc.tobytes()
+    out = pymupdf.open(stream=scrub_pdf_bytes(data, ctx, "form.pdf"), filetype="pdf")
+    text = out[0].get_text()
+    for word in ("FENWICK", "MARISOL", "OKAFOR", "DESMOND", "CALLOWAY", "QUIL", "LAKESHORE"):
+        assert word not in text, word
+    assert "1000.25" in text and "Do Not File" in text

@@ -228,6 +228,59 @@ class KnownEntityRecognizer(EntityRecognizer):
         return out
 
 
+class CapsRowRecognizer(EntityRecognizer):
+    """ALL-CAPS runs on one line, as payroll and tax forms print them ("QUINTERO MARISOL ANNE R",
+    "LAKESHORE CAMPUSES OF OHIO"). A run is a person when it holds a known first name, or
+    is a surname followed by an initial; an organization when it holds a word like CAMPUSES,
+    HOSPITAL or INC. Runs with label words ("VT CHILD CARE CONTRIB EMPLOYER") are left alone."""
+
+    WORD = r"(?:PERSON_\d{4,}|[A-Z][A-Z'.-]*)"
+    RUN = re.compile(rf"(?<![A-Za-z_])(?:{WORD})(?:[ \t]+(?:{WORD}))+(?![A-Za-z_\d])")
+    TOKEN = re.compile(r"PERSON_\d{4,}")
+    ORG_WORDS = {"CAMPUS", "CAMPUSES", "HOSPITAL", "HOSPITALS", "CENTER", "CENTERS", "CENTRE", "CLINIC", "CLINICS",
+                 "HEALTH", "HEALTHCARE", "MEDICAL", "RECOVERY", "TREATMENT", "BEHAVIORAL", "REHAB",
+                 "REHABILITATION", "INC", "LLC", "LLP", "CORP", "CORPORATION", "COMPANY", "ASSOCIATES",
+                 "PARTNERS", "FOUNDATION", "INSTITUTE", "UNIVERSITY", "PHARMACY", "LABS", "LABORATORIES",
+                 "NURSING", "HOSPICE", "WELLNESS", "PRACTICE", "GROUP", "SYSTEMS", "SOLUTIONS", "ACADEMY"}
+
+    def __init__(self, first_names: frozenset[str], last_names: frozenset[str]):
+        self.first = first_names
+        self.last = last_names
+        super().__init__(supported_entities=["PERSON", "ORGANIZATION"], name="caps_row", supported_language="en")
+
+    def load(self) -> None:
+        pass
+
+    def _person(self, words: list[str]) -> bool:
+        alpha = [w.strip(".'-") for w in words]
+        if len(alpha) > 5 or any(w.lower() in P.LABEL_WORDS and len(w) > 1 for w in alpha):
+            return False
+        names = [w for w in alpha if not self.TOKEN.fullmatch(w)]
+        if names and len(names) < len(alpha):
+            # caps words next to an already-scrubbed name are the rest of that name ("CALLOWAY PERSON_1342")
+            return True
+        if any(len(w) > 2 and w in self.first and w.lower() not in P.COMMON_WORD_NAMES for w in alpha):
+            return True
+        # "CALLOWAY QUIL R": surname, a (cut-off) first name, a middle initial
+        return 2 <= len(alpha) <= 4 and len(alpha[-1]) == 1 and alpha[0] in self.last and len(alpha[0]) > 2
+
+    def analyze(self, text, entities, nlp_artifacts=None):
+        out = []
+        for m in self.RUN.finditer(text):
+            words = m.group(0).split()
+            if all(self.TOKEN.fullmatch(w) for w in words):
+                continue
+            if len(words) >= 2 and any(w.strip(".,") in self.ORG_WORDS for w in words):
+                etype, score = "ORGANIZATION", 0.75
+            elif self._person(words):
+                etype, score = "PERSON", 0.7
+            else:
+                continue
+            out.append(RecognizerResult(etype, m.start(), m.end(), score,
+                                        recognition_metadata={"recognizer_name": self.name}))
+        return out
+
+
 def _firm_score(last_names):
     """"Casey, Gray and Duncan" / "Lopez and Sons": every name word is a surname."""
     filler = {"Sons", "Daughters", "Brothers", "Partners", "Associates", "Company", "Co"}
@@ -282,6 +335,7 @@ def build_custom_recognizers(cfg: dict, first_names, last_names) -> list[EntityR
         RegexRecognizer("spoken_number", "OTHER_ID", [P.SPOKEN_DIGITS], 0.0,
                         scorer=lambda v: 0.6 if len(re.sub(r"\D", "", v)) not in (7, 9, 10, 11) else None),
         NameGazetteerRecognizer(first_names, last_names),
+        CapsRowRecognizer(first_names, last_names),
     ]
     for i, entry in enumerate(cfg.get("custom_patterns") or []):
         recs.append(RegexRecognizer(f"custom_{entry.get('name', i)}", entry["entity"], [entry["regex"]],

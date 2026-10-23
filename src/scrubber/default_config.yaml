@@ -63,6 +63,24 @@ allowlist:
     - Moderna
     - Johnson & Johnson
     - Merck
+    # payroll and HR vendors (they print their own name on every tax form)
+    - Paycor
+    - Paycor, Inc.
+    - ADP
+    - Paychex
+    - Gusto
+    - Paylocity
+    - Paycom
+    - UKG
+    - Workday
+    - Ceridian
+    - Dayforce
+    - Rippling
+    - Intuit
+    - QuickBooks
+    - TriNet
+    - Justworks
+    - Insperity
   # Exact terms that are never identifiers (medical codes, product names ...).
   terms:
     - COVID-19
