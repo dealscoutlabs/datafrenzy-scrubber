@@ -191,11 +191,17 @@ def _free_name(folder: Path, name: str) -> Path:
     return target
 
 
+# what macOS / Windows make when text (not a file) is dragged out of a window
+SNIPPETS = {".textclipping", ".webloc", ".inetloc", ".url", ".shs", ".scf"}
+SNIPPET_MSG = ("That was a piece of text, not a file. Drag the file's icon from Finder or File Explorer, "
+               "or use Add files.")
+
+
 def add_to_batch(paths: list[str]) -> int:
     """Copy files and folders into the batch (originals are never touched) and start scrubbing.
     Returns how many items were added."""
     import shutil
-    items = [Path(p) for p in paths if p and Path(p).exists()]
+    items = [Path(p) for p in paths if p and Path(p).exists() and Path(p).suffix.lower() not in SNIPPETS]
     inbox = current_paths().input
     inbox.mkdir(parents=True, exist_ok=True)
     meta = batch_info()
@@ -306,6 +312,9 @@ def bind_drop(window) -> None:
         print(f"drop: {len(files)} item(s), {len(paths)} path(s)", file=sys.stderr, flush=True)
         if paths and add_to_batch(paths):
             window.evaluate_js("location.reload()")
+        elif paths:
+            from urllib.parse import quote
+            window.evaluate_js(f"location.href = '/?msg={quote(SNIPPET_MSG)}'")
 
     window.dom.document.events.drop += DOMEventHandler(on_drop, True, True)
 

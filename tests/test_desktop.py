@@ -157,3 +157,11 @@ def test_batch_add_save_and_new(tmp_path, monkeypatch):
     assert not desktop.batch_dir().exists()
     (entry,) = desktop.history()
     assert entry["saved_to"] == [str(saved)] and "notes" not in str({k: v for k, v in entry.items() if k != "saved_to"})
+
+
+def test_text_clippings_are_not_added(tmp_path, monkeypatch):
+    monkeypatch.setattr(desktop, "app_dir", lambda: tmp_path / "app")
+    (tmp_path / "app").mkdir()
+    clip = tmp_path / "Discharge Report.textClipping"
+    clip.write_bytes(b"bplist00")
+    assert desktop.add_to_batch([str(clip)]) == 0
