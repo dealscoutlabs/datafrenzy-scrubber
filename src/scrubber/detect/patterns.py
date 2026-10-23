@@ -178,6 +178,7 @@ update updates meeting meetings team staff admin office reception front desk tri
 care coordinator coordinators coordination case manager management services service support health
 current facility facilities name names raw identified de-identified deidentified de unit units dept department
 data dataset export exports sheet sheets tab tabs table tables contains phi pii raw original copy final draft
+nurse nurses rn lpn lvn cna np aprn pa md therapist therapists counselor counselors clinician clinicians physician physicians doctor doctors provider providers aide aides technician tech psychiatrist psychologist pharmacist chaplain dietitian dietician social worker workers director supervisor administrator charge attending resident resident
 """.split())
 
 # Ordinary lowercase words that also appear in the Census name lists; never

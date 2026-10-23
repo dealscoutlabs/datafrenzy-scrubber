@@ -495,9 +495,54 @@ def verify_workbook(data: bytes, expected: list[tuple[str, int, int]], ctx: Cont
         flush_residual(buf, ctx, where)
 
 
+SLIM_SHEET_BYTES = 8 << 20
+_EMPTY_CELL = re.compile(rb'<c r="[A-Z]{1,3}\d+"(?: s="\d+")?(?: t="[a-zA-Z]+")?\s*(?:/>|></c>)')
+_EMPTY_ROW = re.compile(rb"<row [^>]*?(?:/>|>\s*</row>)")
+_DIMENSION = re.compile(rb"<dimension [^>]*/>")
+_PIVOT_REL = re.compile(rb'<Relationship [^>]*Type="[^"]*/(?:pivotTable|pivotCacheDefinition)"[^>]*/>')
+_PIVOT_CACHES = re.compile(rb"<pivotCaches>.*?</pivotCaches>", re.S)
+_PIVOT_TYPES = re.compile(rb'<Override PartName="/xl/pivot[^"]*"[^>]*/>')
+
+
+def slim_xlsx(data: bytes) -> tuple[bytes, bool]:
+    """Before opening a workbook: take out pivot tables and their caches (copies of the data
+    that are never exported, and slow to read: 240 of them took 10 minutes), and drop cells
+    that hold nothing but formatting from very large sheets (a style applied to whole columns
+    can leave a million empty rows). Values, formulas and everything else are untouched.
+    Returns (workbook bytes, whether pivot tables were removed)."""
+    import zipfile
+
+    src = zipfile.ZipFile(io.BytesIO(data))
+    infos = src.infolist()
+    pivots = [i for i in infos if i.filename.startswith(("xl/pivotTables/", "xl/pivotCache/"))]
+    big = [i for i in infos if i.filename.startswith("xl/worksheets/sheet") and i.file_size > SLIM_SHEET_BYTES]
+    if not pivots and not big:
+        return data, False
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as dst:
+        for info in infos:
+            if info in pivots:
+                continue
+            body = src.read(info)
+            if info in big:
+                body = _DIMENSION.sub(b"", _EMPTY_ROW.sub(b"", _EMPTY_CELL.sub(b"", body)))
+            if pivots and info.filename.endswith(".rels"):
+                body = _PIVOT_REL.sub(b"", body)
+            elif pivots and info.filename == "xl/workbook.xml":
+                body = _PIVOT_CACHES.sub(b"", body)
+            elif pivots and info.filename == "[Content_Types].xml":
+                body = _PIVOT_TYPES.sub(b"", body)
+            dst.writestr(info, body, compress_type=zipfile.ZIP_DEFLATED)
+    return out.getvalue(), bool(pivots)
+
+
 def scrub_xlsx_bytes(data: bytes, ctx: Context, item: str) -> bytes:
     from openpyxl import load_workbook
 
+    data, had_pivots = slim_xlsx(data)
+    if had_pivots:
+        ctx.quarantine(f"{item} pivot tables", "pivot tables hold unscrubbed copies of the data and are removed "
+                                               "(the scrubbed sheets they summarized are kept)")
     wb = load_workbook(io.BytesIO(data), keep_vba=False, keep_links=False, rich_text=False)
     scrub_workbook(wb, ctx, item)
     expected = [(ws.title, ws.max_row, ws.max_column) for ws in wb.worksheets]

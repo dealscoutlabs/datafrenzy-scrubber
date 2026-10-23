@@ -193,3 +193,24 @@ def test_ods_is_scrubbed_into_xlsx(workspace, synth, run_pipeline):
     assert "Independent" in flat
     for p in people:
         assert p.last not in flat and p.phone not in flat
+
+
+def test_formatting_only_rows_are_dropped_from_huge_sheets(monkeypatch):
+    """A style applied to whole columns can leave a million empty rows; values must survive."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    from scrubber.formats import tabular
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Employee Name", "Gross Wages"])
+    ws.append(["Pat Example", 1234])
+    for r in range(3, 400):  # formatted but empty
+        ws.cell(r, 1).font = Font(bold=True)
+        ws.cell(r, 2).font = Font(bold=True)
+    buf = io.BytesIO()
+    wb.save(buf)
+    monkeypatch.setattr(tabular, "SLIM_SHEET_BYTES", 0)
+    slim, had_pivots = tabular.slim_xlsx(buf.getvalue())
+    out = load_workbook(io.BytesIO(slim)).active
+    assert not had_pivots and out.max_row == 2 and out["B2"].value == 1234 and out["A2"].value == "Pat Example"

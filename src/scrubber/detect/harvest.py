@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 import email.utils
+import io
 import json
 import re
 import zipfile
@@ -105,7 +106,8 @@ def harvest_file(kind: str, path: Path) -> list[tuple[str, str, str, str]]:
             from ..formats import ods
             wb = ods.to_workbook(path)
         else:
-            wb = load_workbook(path, read_only=True, data_only=True)
+            from ..formats.tabular import slim_xlsx
+            wb = load_workbook(io.BytesIO(slim_xlsx(path.read_bytes())[0]), read_only=True, data_only=True)
         try:
             for ws in wb.worksheets:
                 it = ws.iter_rows(values_only=True)
