@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 import secrets
+import sys
 import time
 from pathlib import Path
 from urllib.parse import quote, urlparse
@@ -107,15 +108,21 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
             return PlainTextResponse("This page only works at http://localhost", status_code=403)
         if request.method == "POST":
             origin = request.headers.get("origin") or request.headers.get("referer")
+            # the Mac app window (WKWebView) sends "Origin: null"; the form's CSRF token still has to match
+            if desktop and origin == "null":
+                origin = None
             if origin and (urlparse(origin).hostname or "") not in ALLOWED_HOSTS:
+                print(f"refused POST {request.url.path} origin={origin!r}", file=sys.stderr, flush=True)
                 return PlainTextResponse("Cross-site request refused", status_code=403)
         resp = await call_next(request)
         resp.headers["Cache-Control"] = "no-store"
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["Referrer-Policy"] = "no-referrer"
+        # the desktop window (pywebview) runs its own scripts through eval(), e.g. to receive dropped files
+        script = "; script-src 'self' 'unsafe-eval'" if desktop else ""
         resp.headers["Content-Security-Policy"] = ("default-src 'self'; img-src 'self' data:; style-src 'self' "
-                                                   "'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
+                                                   "'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" + script)
         return resp
 
     # ------------------------------------------------------------------ pages

@@ -202,6 +202,7 @@ def bind_drop(window) -> None:
     def on_drop(event):
         files = (event.get("dataTransfer") or {}).get("files") or []
         paths = [f.get("pywebviewFullPath") for f in files if f.get("pywebviewFullPath")]
+        print(f"drop: {len(files)} item(s), {len(paths)} path(s)", file=sys.stderr, flush=True)
         if not paths:
             return
         settings = Settings.load()
@@ -221,8 +222,8 @@ class Api:
         self.window = None
 
     def _pick(self) -> str | None:
-        import webview
-        result = self.window.create_file_dialog(webview.FOLDER_DIALOG)
+        from webview import FileDialog
+        result = self.window.create_file_dialog(FileDialog.FOLDER)
         return result[0] if result else None
 
     def choose_input(self):
@@ -232,6 +233,16 @@ class Api:
             s.input = path
             s.save()
         return path
+
+    def choose_files(self):
+        from webview import FileDialog
+        picked = self.window.create_file_dialog(FileDialog.OPEN, allow_multiple=True)
+        if not picked:
+            return None
+        s = Settings.load()
+        s.input = str(dropped_input(list(picked)))
+        s.save()
+        return s.input
 
     def choose_output(self):
         path = self._pick()
