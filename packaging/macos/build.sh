@@ -7,7 +7,7 @@ PY=${1:-python3}
 APP="dist/Data Frenzy Scrubber.app"
 mkdir -p dist && git archive --format=zip -o dist/source.zip HEAD   # AGPL: source ships with the app
 "$PY" -m PyInstaller packaging/macos/DataFrenzyScrubber.spec --noconfirm --distpath dist --workpath build
-python3 packaging/macos/bundle_tesseract.py "$APP/Contents/Frameworks/tesseract"
+python3 packaging/macos/bundle_tesseract.py "$APP/Contents/Frameworks/tesseract" "$APP/Contents/Resources/tessdata"
 # Sign everything inside out. MAC_SIGN_IDENTITY = "Developer ID Application: ..." signs for real
 # (hardened runtime, timestamp); without it the app gets an ad-hoc signature for local use.
 sh packaging/macos/sign.sh "$APP" "${MAC_SIGN_IDENTITY:--}"

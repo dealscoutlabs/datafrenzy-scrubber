@@ -1,7 +1,11 @@
 """Copy Homebrew's Tesseract and the non-system libraries it needs into a folder,
 repointing every library reference so the copy runs on a Mac without Homebrew.
 
-    python3 bundle_tesseract.py "dist/Data Frenzy Scrubber.app/Contents/Frameworks/tesseract"
+    python3 bundle_tesseract.py "dist/Data Frenzy Scrubber.app/Contents/Frameworks/tesseract" \
+                                "dist/Data Frenzy Scrubber.app/Contents/Resources/tessdata"
+
+The program and its libraries go in Frameworks; the language data goes in Resources (Apple's
+signing refuses non-code files in Frameworks).
 
 References come in three forms: absolute Homebrew paths, @rpath/... (looked up in the
 referring file's LC_RPATH entries) and @loader_path/... (next to the referring file). All of
@@ -53,8 +57,9 @@ def resolve(ref: str, origin: Path, extra: list[Path]) -> Path:
     return Path(os.path.realpath(ref))
 
 
-def main(dest: str) -> None:
+def main(dest: str, data: str | None = None) -> None:
     dest = Path(dest)
+    tessdata = Path(data) if data else dest / "tessdata"
     libdir = dest / "lib"
     libdir.mkdir(parents=True, exist_ok=True)
     tess = Path(os.path.realpath(shutil.which("tesseract")))
@@ -90,10 +95,10 @@ def main(dest: str) -> None:
         for rp in sorted({str(p) for p in rpaths(f, f)}, key=len):
             subprocess.run(["install_name_tool", "-delete_rpath", rp, str(f)], capture_output=True)
         subprocess.run(["codesign", "--force", "-s", "-", str(f)], check=True, capture_output=True)
-    shutil.copytree(prefix / "share" / "tessdata", dest / "tessdata",
+    shutil.copytree(prefix / "share" / "tessdata", tessdata,
                     ignore=shutil.ignore_patterns("*.traineddata"), dirs_exist_ok=True)
     for lang in ("eng", "osd"):
-        shutil.copy2(prefix / "share" / "tessdata" / f"{lang}.traineddata", dest / "tessdata")
+        shutil.copy2(prefix / "share" / "tessdata" / f"{lang}.traineddata", tessdata)
 
     # check: every reference stays inside the folder, and the copy runs on its own
     bad = [f"{f.name} -> {r}" for f in [exe, *seen.values()] for r in refs(f)
@@ -101,7 +106,7 @@ def main(dest: str) -> None:
     if bad:
         raise SystemExit("references outside the bundle:\n  " + "\n  ".join(bad))
     run = subprocess.run([str(exe), "--version"], capture_output=True, text=True,
-                         env={"PATH": "/usr/bin:/bin", "TESSDATA_PREFIX": str(dest / "tessdata"),
+                         env={"PATH": "/usr/bin:/bin", "TESSDATA_PREFIX": str(tessdata),
                               "DYLD_FALLBACK_LIBRARY_PATH": "/usr/lib"})
     if run.returncode != 0:
         raise SystemExit(f"bundled tesseract does not run:\n{run.stdout}{run.stderr}")
@@ -109,4 +114,4 @@ def main(dest: str) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(*sys.argv[1:3])

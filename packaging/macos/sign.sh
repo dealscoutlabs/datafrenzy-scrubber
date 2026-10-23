@@ -9,7 +9,8 @@ ID=${2:--}
 ENT="$(dirname "$0")/entitlements.plist"
 if [ "$ID" = "-" ]; then OPTS=""; else OPTS="--options runtime --timestamp"; fi
 # libraries and executables first (deepest paths first), the app bundle last
-find "$APP/Contents" -type f | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2- | while IFS= read -r f; do
+# (the main executable in Contents/MacOS is signed together with the app at the end)
+find "$APP/Contents" -type f ! -path "$APP/Contents/MacOS/*" | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2- | while IFS= read -r f; do
   if file -b "$f" | grep -q "Mach-O"; then
     codesign --force $OPTS --entitlements "$ENT" -s "$ID" "$f" >/dev/null 2>&1 || {
       echo "could not sign $f"; codesign --force $OPTS --entitlements "$ENT" -s "$ID" "$f"; exit 1; }

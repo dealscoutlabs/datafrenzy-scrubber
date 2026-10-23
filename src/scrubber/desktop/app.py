@@ -58,7 +58,9 @@ def configure_bundle() -> None:
     os.environ.setdefault("OMP_THREAD_LIMIT", "1")
     tess = b / "tesseract" / ("tesseract.exe" if os.name == "nt" else "tesseract")
     if tess.exists():
-        os.environ.setdefault("TESSDATA_PREFIX", str(tess.parent / "tessdata"))
+        # Mac app: language data sits in Contents/Resources (Apple's signing rules); Windows: next to it
+        data = b.parent / "Resources" / "tessdata"
+        os.environ.setdefault("TESSDATA_PREFIX", str(data if data.is_dir() else tess.parent / "tessdata"))
         # on PATH, not just set in this process: the scrubbing workers are separate processes
         os.environ["PATH"] = str(tess.parent) + os.pathsep + os.environ.get("PATH", "")
         import pytesseract
