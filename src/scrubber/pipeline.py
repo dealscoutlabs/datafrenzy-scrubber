@@ -14,6 +14,7 @@ import multiprocessing as mp
 import os
 import shutil
 import subprocess
+import sys
 import time
 import traceback
 from dataclasses import dataclass
@@ -136,7 +137,8 @@ def start_method() -> str:
     forced = os.environ.get("SCRUBBER_START_METHOD")
     if forced:
         return forced
-    return "fork" if "fork" in mp.get_all_start_methods() and os.name != "nt" else "spawn"
+    # fork only on Linux: Windows can't, and macOS crashes system libraries in forked children
+    return "fork" if sys.platform.startswith("linux") else "spawn"
 
 
 def init_worker(paths: "Paths", cfg: dict) -> None:

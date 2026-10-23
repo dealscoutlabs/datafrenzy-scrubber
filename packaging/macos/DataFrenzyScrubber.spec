@@ -38,5 +38,6 @@ pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="DataFrenzyScrubber", console=False)
 coll = COLLECT(exe, a.binaries, a.datas, name="DataFrenzyScrubber")
 app = BUNDLE(coll, name="Data Frenzy Scrubber.app", bundle_identifier="ai.datafrenzy.scrubber",
+             icon=str(ROOT / "packaging" / "icons" / "icon.icns"),
              info_plist={"CFBundleShortVersionString": "0.1.0", "NSHighResolutionCapable": True,
                          "LSMinimumSystemVersion": "12.0"})

@@ -25,6 +25,7 @@ from .. import __version__
 from ..config import add_deny_terms, deny_additions, load_config, remove_deny_term
 from ..identifiers import TOKEN_PREFIX
 from ..pipeline import Paths, Runner
+from ..state import Store
 
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1"}
 PREVIEWABLE = {"image", "pdf", "dicom"}
@@ -65,10 +66,19 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
     def runner() -> Runner:
         return Runner(paths, load_config(config_path), workers=1, echo=lambda *_: None)
 
+    def nav_pending() -> int:
+        try:
+            db = paths.state / "state.db"
+            return len(Store(db).reviews("pending")) if db.exists() else 0
+        except Exception:
+            return 0
+
     def page(name: str, request: Request, **ctx) -> HTMLResponse:
+        lock_state, lock_text = (desktop.lock() if desktop is not None else (None, ""))
         html = _env.get_template(name).render(
             csrf=csrf, version=__version__, reviewer=request.cookies.get("reviewer", ""),
-            msg=request.query_params.get("msg", ""), desktop=desktop is not None, **ctx)
+            msg=request.query_params.get("msg", ""), desktop=desktop is not None, path=request.url.path,
+            nav_pending=nav_pending(), lock_state=lock_state, lock_text=lock_text, **ctx)
         return HTMLResponse(html)
 
     def back(url: str, msg: str, reviewer: str | None = None) -> RedirectResponse:

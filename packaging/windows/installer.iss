@@ -27,6 +27,8 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ; admin rights are needed to add the Windows Firewall rules below
 PrivilegesRequired=admin
 WizardStyle=modern
+SetupIconFile=..\icons\icon.ico
+UninstallDisplayIcon={app}\DataFrenzyScrubber.exe
 UninstallDisplayName={#AppName}
 
 [Files]

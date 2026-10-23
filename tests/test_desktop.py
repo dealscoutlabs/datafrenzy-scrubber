@@ -94,3 +94,23 @@ def test_pipeline_with_spawned_workers(workspace, synth, run_pipeline, monkeypat
     out = "".join(f.read_text() for f in workspace.released.rglob("*.txt"))
     for p in people:
         assert p.last not in out and p.ssn not in out
+
+
+def test_drop_a_folder_uses_it_directly(tmp_path):
+    folder = tmp_path / "Exports"
+    folder.mkdir()
+    assert desktop.dropped_input([str(folder)]) == folder
+
+
+def test_drop_files_copies_them_to_a_private_folder(tmp_path, monkeypatch):
+    monkeypatch.setattr(desktop, "app_dir", lambda: tmp_path / "app")
+    a, b = tmp_path / "a.csv", tmp_path / "notes.txt"
+    a.write_text("x")
+    b.write_text("y")
+    target = desktop.dropped_input([str(a), str(b)])
+    assert target == tmp_path / "app" / "dropped" and sorted(p.name for p in target.iterdir()) == ["a.csv", "notes.txt"]
+    # a second drop replaces the first copy
+    c = tmp_path / "other.eml"
+    c.write_text("z")
+    target = desktop.dropped_input([str(c)])
+    assert [p.name for p in target.iterdir()] == ["other.eml"]

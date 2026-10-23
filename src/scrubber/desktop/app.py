@@ -174,6 +174,44 @@ class Worker:
             time.sleep(1.5)
 
 
+# ------------------------------------------------------------------ drag and drop
+
+def dropped_input(paths: list[str]) -> Path:
+    """What to scrub after a drop: a single folder is used as it is; loose files (or several
+    folders) are copied into one private folder in the app's data folder. The previous
+    dropped copy is deleted first, so copies of originals don't pile up."""
+    import shutil
+    items = [Path(p) for p in paths if p and Path(p).exists()]
+    if len(items) == 1 and items[0].is_dir():
+        return items[0]
+    target = app_dir() / "dropped"
+    shutil.rmtree(target, ignore_errors=True)
+    target.mkdir(parents=True)
+    for item in items:
+        if item.is_dir():
+            shutil.copytree(item, target / item.name, dirs_exist_ok=True)
+        else:
+            shutil.copy2(item, target / item.name)
+    return target
+
+
+def bind_drop(window) -> None:
+    """Read the full paths of files dropped on the window (pywebview gives them to Python only)."""
+    from webview.dom import DOMEventHandler
+
+    def on_drop(event):
+        files = (event.get("dataTransfer") or {}).get("files") or []
+        paths = [f.get("pywebviewFullPath") for f in files if f.get("pywebviewFullPath")]
+        if not paths:
+            return
+        settings = Settings.load()
+        settings.input = str(dropped_input(paths))
+        settings.save()
+        window.evaluate_js("location.reload()")
+
+    window.dom.document.events.drop += DOMEventHandler(on_drop, True, True)
+
+
 # ------------------------------------------------------------------ window
 
 class Api:
@@ -265,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     api = Api()
     api.window = webview.create_window(APP_NAME, f"http://127.0.0.1:{port}/", js_api=api, width=1240, height=880,
                                        min_size=(900, 640))
+    api.window.events.loaded += lambda: bind_drop(api.window)  # every page load gets the drop handler
     webview.start(private_mode=True)
     return 0
 

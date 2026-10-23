@@ -39,5 +39,5 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="DataFrenzyScrubber", console=False,
-          version=None, icon=None)
+          version=None, icon=str(ROOT / "packaging" / "icons" / "icon.ico"))
 coll = COLLECT(exe, a.binaries, a.datas, name="DataFrenzyScrubber")
