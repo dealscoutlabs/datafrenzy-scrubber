@@ -153,6 +153,9 @@ class JsonScrubber:
         if EPOCH_KEY.search(k) or k in TS_KEYS:
             return self.epoch(value)
         ctype = classify_header(k)
+        if ctype == "geo":                      # latitude/longitude, FIPS: pinpoint a home
+            self.ctx.tally.counts["LOCATION"] += 1
+            return 0
         if ctype == "age":
             if value >= 90:
                 self.ctx.tally.counts["AGE_OVER_89"] += 1
@@ -210,6 +213,9 @@ class JsonScrubber:
             return str(self.ctx.gen.age(value))
         if ctype in ("state", "country"):
             return value
+        if ctype == "geo":
+            self.ctx.tally.counts["LOCATION"] += 1
+            return ""
         if self.slack:
             value = self.slack_text(value)
         self.pending.append((None, None, value))

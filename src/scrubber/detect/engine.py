@@ -215,7 +215,8 @@ class Detector:
             found.append(Finding(start, end, etype, r.score, span, source))
         artifacts = [(m.start(), m.end()) for m in ARTIFACT_RE.finditer(text)]
         found = [f for f in found if not _overlaps_artifact(text, f, artifacts)
-                 and not (f.source == "SpacyRecognizer" and f.etype in NAMEISH and not self._meaningful(f.text))]
+                 and not (f.source == "SpacyRecognizer" and f.etype in NAMEISH and not self._meaningful(f.text))
+                 and not (f.source == "SpacyRecognizer" and f.etype in NAMEISH and _beside_dose(text, f))]
         found = _resolve(found)
         for f in found:
             f.start += offset
@@ -355,3 +356,15 @@ def _resolve(found: list[Finding]) -> list[Finding]:
         chosen_starts.insert(k, f.start)
         chosen.insert(k, f)
     return chosen
+
+
+# a drug strength right next to a word: "Afluria PF 30 mcg", "100 MG Extended Release", "Albuterol 0.09 MG"
+DOSE = re.compile(r"\b\d+(?:\.\d+)?\s*(?:mg|mcg|µg|ug|g|ml|l|meq|mmol|iu|units?|%|hr|actuat)\b(?:/\S+)?", re.I)
+
+
+def _beside_dose(text: str, f) -> bool:
+    """The language model reads drug brand names as people ("Afluria"). A word with a dose
+    within a few characters on the same line is a drug, not a person."""
+    left = text[max(0, f.start - 16):f.start].split("\n")[-1]
+    right = text[f.end:f.end + 20].split("\n")[0]
+    return bool(DOSE.search(left) or DOSE.search(right) or DOSE.search(text[f.start:f.end]))

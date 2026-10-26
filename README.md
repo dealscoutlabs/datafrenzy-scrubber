@@ -14,6 +14,7 @@ This program removes patient and personal information from your business files *
 > - Word documents (`.docx`) and PDFs, including scanned PDFs
 > - photos and images (`.jpg`, `.png`, `.tif`, `.heic` and more)
 > - medical images (`.dcm` DICOM)
+> - EHR exports in C-CDA / CDA XML (CCD, discharge summaries, referral notes) and other XML files
 > - EHR exports in FHIR (HL7 JSON bundles, e.g. Epic/Cerner/Synthea): codes kept, names/addresses/IDs/dates replaced by rule, record links preserved
 > - zip files (large zips are unpacked so their files are scrubbed in parallel; they come out in a "<name> (from zip)" folder)
 > - JSON files and plain text

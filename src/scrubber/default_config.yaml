@@ -261,6 +261,7 @@ tabular:
     url: pseudonymize
     ip: pseudonymize
     biometric: drop
+    geo: drop                 # latitude/longitude, FIPS county codes, census tracts
     other_id: pseudonymize
     organization: pseudonymize
     address: pseudonymize

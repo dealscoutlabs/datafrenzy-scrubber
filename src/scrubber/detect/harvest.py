@@ -101,6 +101,14 @@ def harvest_file(kind: str, path: Path) -> list[tuple[str, str, str, str]]:
                 name = info.filename.rsplit("/", 1)[-1]
                 if name in ("users.json", "org_users.json") and info.file_size <= 256 << 20:
                     rows += _harvest_json(json.loads(z.read(info).decode("utf-8-sig", errors="replace")), "slack")
+    elif kind == "xml" and path.stat().st_size <= 256 << 20:
+        from xml.etree import ElementTree as ET
+        for el in ET.parse(path).getroot().iter():
+            if isinstance(el.tag, str) and el.tag.rsplit("}", 1)[-1] == "name":
+                given = [c.text for c in el if isinstance(c.tag, str) and c.tag.endswith("given") and c.text]
+                family = [c.text for c in el if isinstance(c.tag, str) and c.tag.endswith("family") and c.text]
+                if family:
+                    rows += _fhir_name_rows({"given": given, "family": family}, "xml")
     elif kind in ("xlsx", "ods"):
         from openpyxl import load_workbook
         if kind == "ods":
@@ -131,7 +139,8 @@ def _fhir_name_rows(hn: dict, source: str) -> list:
     """A FHIR HumanName. Synthea-style names carry digits ("Abram53 Hirthe744"), so they are
     taken as they are; each part is also listed, since file names and notes use parts alone."""
     given = [g.strip() for g in hn.get("given", []) if isinstance(g, str) and g.strip()]
-    family = hn["family"].strip()
+    fam = hn["family"]
+    family = " ".join(x for x in fam if isinstance(x, str)).strip() if isinstance(fam, list) else fam.strip()
     full = " ".join(given + [family])
     if not family or len(full) > 80:
         return []
@@ -150,7 +159,7 @@ def _harvest_json(obj, source: str) -> list:
     while stack:
         node = stack.pop()
         if isinstance(node, dict):
-            if isinstance(node.get("family"), str) and isinstance(node.get("given"), list):
+            if isinstance(node.get("family"), (str, list)) and isinstance(node.get("given"), list):
                 out += _fhir_name_rows(node, source)          # FHIR HumanName (EHR exports)
             first, last = node.get("first_name"), node.get("last_name")
             if isinstance(first, str) and isinstance(last, str) and first.strip() and last.strip():

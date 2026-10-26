@@ -24,7 +24,7 @@ from . import __version__
 from .config import config_hash, load_zip3_restricted
 from .detect.engine import Detector
 from .detect.harvest import harvest_file, known_entries
-from .formats import archive, audio, dicom, docx_, email_, image, json_, mbox, pdf, tabular, text
+from .formats import archive, audio, dicom, docx_, email_, image, json_, mbox, pdf, tabular, text, xml_
 from .formats.dispatch import IMAGE_EXT
 from .formats.base import Context, Quarantined
 from .identifiers import SAFE_HARBOR, ENTITY_TO_CATEGORY
@@ -37,10 +37,10 @@ from .transform.scrub import Tally, TextScrubber
 log = logging.getLogger("scrubber")
 
 SUPPORTED = {".eml": "eml", ".mbox": "mbox", ".mbx": "mbox", ".pst": "pst", ".ost": "pst", ".csv": "csv",
-             ".tsv": "csv", ".xlsx": "xlsx", ".ods": "ods", ".txt": "text", ".text": "text", ".md": "text", ".log": "text",
+             ".tsv": "csv", ".xlsx": "xlsx", ".ods": "ods", ".xml": "xml", ".cda": "xml", ".ccd": "xml", ".ccda": "xml", ".txt": "text", ".text": "text", ".md": "text", ".log": "text",
              ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl", ".zip": "zip", ".docx": "docx", ".pdf": "pdf",
              ".dcm": "dicom", ".dicom": "dicom", **{e: "image" for e in IMAGE_EXT}}
-HANDLED = {"eml", "mbox", "csv", "xlsx", "ods", "text", "json", "jsonl", "zip", "docx", "pdf", "image", "dicom", "media"}
+HANDLED = {"eml", "mbox", "csv", "xlsx", "ods", "xml", "text", "json", "jsonl", "zip", "docx", "pdf", "image", "dicom", "media"}
 MEDIA_REASON = "audio/video contains voiceprints (biometric identifier) - never exported"
 NO_WHISPER = ("audio/video contains voiceprints (biometric identifier) - never exported; transcription is "
               "turned on but this install has no Whisper model (rebuild with WITH_WHISPER=1)")
@@ -213,6 +213,8 @@ def run_job(job: tuple[str, int]) -> tuple[str, int, str]:
                 tabular.process_xlsx(src, dst, ctx)
             elif f["kind"] == "ods":
                 tabular.process_ods(src, dst, ctx)
+            elif f["kind"] == "xml":
+                xml_.process_xml(src, dst, ctx)
             elif f["kind"] == "text":
                 text.process_text(src, dst, ctx)
             elif f["kind"] in ("json", "jsonl"):
@@ -384,7 +386,7 @@ class Runner:
 
     def harvest(self) -> None:
         todo = [r for r in self.store.files("pending")
-                if r["kind"] in ("eml", "mbox", "csv", "xlsx", "ods", "zip", "json") and not r["harvested"]]
+                if r["kind"] in ("eml", "mbox", "csv", "xlsx", "ods", "zip", "json", "xml") and not r["harvested"]]
         if todo:
             self.echo(f"Collecting names from email headers and name columns ({len(todo):,} files) ...")
         for row in todo:

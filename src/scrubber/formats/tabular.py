@@ -15,9 +15,31 @@ from pathlib import Path
 from typing import BinaryIO, Callable
 
 from .base import Context
-from .columns import is_category, COLUMN_ENTITY, classify_by_content, classify_header
+from .columns import is_category, normalize_header, COLUMN_ENTITY, classify_by_content, classify_header
 
 BATCH_ROWS = 500
+# SNOMED CT names end with a semantic tag: "Hypertension (disorder)", "T1 category (qualifier value)"
+TERM_VALUE = re.compile(r"\((finding|disorder|procedure|qualifier value|substance|body structure|situation|"
+                        r"observable entity|regime/therapy|morphologic abnormality|event|product|"
+                        r"physical object|record artifact|assessment scale|occupation|person|environment|"
+                        r"attribute|navigational concept|social concept|specimen|tumor staging|"
+                        r"cell structure|cell|organism|clinical drug|medicinal product)\)\s*$")
+# "SNOMED-CT 38341003", "LOINC 8302-2", "RxNorm 197361": a code label, not a name
+CODE_LABEL = re.compile(r"^\s*(SNOMED[- ]?CT|SNOMED|LOINC|RxNorm|RXNORM|ICD-?10(-CM|-PCS)?|ICD-?9(-CM)?|CPT|HCPCS|NDC|"
+                        r"CVX|NUCC|UCUM|DICOM|DCM|HL7)\s+[\w./:-]+\s*$", re.I)
+
+
+def is_terminology(text: str) -> bool:
+    return bool(TERM_VALUE.search(text) or CODE_LABEL.match(text))
+
+
+CODE_HEADER = re.compile(r"(^|[ _])code$|code$")
+# what a question/answer label may turn a value into: clearly personal types only
+LABELLED_TYPES = {"address", "phone", "fax", "email", "ssn", "person_name", "mrn", "health_plan", "account",
+                  "license", "zip", "dob", "url", "ip", "city", "vehicle", "device", "other_id"}
+VALUE_HEADER = re.compile(r"^(value|result|answer|response|value text|value string|result value|observation value)$")
+NOT_A_CODE = re.compile(r"zip|postal|post code|area code|country code|state code|phone|promo|discount|access|pass")
+TERM_HEADER = re.compile(r"(^| )(description|desc|display|display name|code description|code display)$|description$")
 RESIDUAL_CHARS = 50_000
 EMAIL_IN_CELL = re.compile(r"[\w.+'-]+@[\w-]+(?:\.[\w-]+)+")
 csv.field_size_limit(1 << 30)
@@ -33,7 +55,18 @@ class ColumnPlan:
         overrides = (tab.get("column_overrides") or {}).get(file_name, {})
         self.types: list[str] = []
         self.actions: list[str] = []
+        norms = [normalize_header(h) for h in headers]
+        has_code = any(CODE_HEADER.search(n) and not NOT_A_CODE.search(n) for n in norms)
+        ctx.kept.update(str(h).strip() for h in headers if isinstance(h, str) and h.strip())
+        # question/answer rows: the description says what the value is ("Address" | "550 Hand Parade")
+        self.value_cols = {i for i, n in enumerate(norms) if VALUE_HEADER.search(n)}
+        self.label_cols = [i for i, n in enumerate(norms) if has_code and TERM_HEADER.search(n)]
         for i, header in enumerate(headers):
+            if has_code and TERM_HEADER.search(norms[i]):
+                # a description next to a code column describes the code (SNOMED, LOINC, RxNorm ...)
+                self.types.append("terminology")
+                self.actions.append("keep")
+                continue
             ctype = classify_header(header)
             if ctype == "category":
                 col = [row[i] if i < len(row) else None for row in (all_rows or samples)]
@@ -65,6 +98,19 @@ class CellRewriter:
         self.plan = plan
         self.blank = blank
         self.allow_remove = allow_remove  # XLSX blanks "remove" columns instead (keeps cell layout)
+        self._seen: dict = {}             # text -> scrub result, reused within the file
+
+    def _labelled_type(self, row: list, i: int) -> str | None:
+        """In a question/answer row, the label column names what the value cell holds."""
+        if i not in self.plan.value_cols:
+            return None
+        for j in self.plan.label_cols:
+            label = row[j] if j < len(row) else None
+            if isinstance(label, str) and len(label) <= 60:
+                t = classify_header(label)
+                if t in LABELLED_TYPES and not (isinstance(row[i], str) and is_terminology(row[i])):
+                    return t
+        return None
 
     def _token(self, etype: str, value) -> str:
         text = str(value)
@@ -107,7 +153,18 @@ class CellRewriter:
                 if value is None or (isinstance(value, str) and not value.strip()):
                     continue
                 ctype, action = self.plan.get(i)
-                if action == "keep" or (ctype in ("state", "country") and action != "drop"):
+                if ctype in ("terminology", "state", "country") and action != "drop":
+                    self.ctx.kept.add(str(value).strip())   # kept by rule: not a leftover for the double-check
+                    continue
+                if action == "keep":
+                    continue
+                labelled = self._labelled_type(row, i)
+                if labelled:
+                    ctype, action = labelled, "pseudonymize" if labelled in COLUMN_ENTITY else action
+                    if labelled in ("dob", "date", "zip", "age"):
+                        action = "generalize"
+                if isinstance(value, str) and is_terminology(value) and not labelled:
+                    self.ctx.kept.add(value.strip())   # a SNOMED term such as "Fever (finding)"
                     continue
                 if action in ("drop", "remove"):
                     row[i] = self.blank
@@ -135,7 +192,17 @@ class CellRewriter:
                 pending.append((r, i))
                 texts.append(str(value) if not isinstance(value, float) or not value.is_integer() else str(int(value)))
         if texts:
-            for (r, i), res in zip(pending, self.ctx.scrubber.scrub_many(texts, self.ctx.tally)):
+            # columns repeat the same text ("Body Height" x 50,000): scrub each distinct text once
+            # per file, but count every occurrence for the report
+            todo = [t for t in dict.fromkeys(texts) if t not in self._seen]
+            if todo:
+                for t, res in zip(todo, self.ctx.scrubber.scrub_many(todo, None)):
+                    if len(self._seen) > 200_000:
+                        self._seen.clear()
+                    self._seen[t] = res
+            for (r, i), t in zip(pending, texts):
+                res = self._seen.get(t) or self.ctx.scrubber.scrub_many([t], None)[0]
+                self.ctx.scrubber.count(res.findings, self.ctx.tally)
                 if res.findings:
                     out[r][i] = res.text
         if self.plan.removed and self.allow_remove:
@@ -168,13 +235,23 @@ def needs_check(value: str) -> bool:
     punctuation or a short number (year, amount, count) have nothing left to find;
     anything with letters or a longer number (a phone, an ID) is checked."""
     from ..detect.engine import ARTIFACT_RE
+    if re.fullmatch(r"\s*-?\d+\.\d+\s*", value):
+        return False   # a decimal number (a cost, a score) is never an ID
     rest = _PUNCT.sub("", ARTIFACT_RE.sub(" ", value))
     return bool(rest) and not re.fullmatch(r"\d{1,6}", rest)
 
 
 def _residual_rows(rows: list[list], ctx: Context, where: str, buf: list[str]) -> None:
     for row in rows:
-        buf.extend(str(v) for v in row if v not in (None, "") and str(v).strip() not in ctx.kept and needs_check(str(v)))
+        for v in row:
+            if v in (None, ""):
+                continue
+            t = str(v)
+            if t in ctx.checked or t.strip() in ctx.kept or not needs_check(t):
+                continue
+            if len(ctx.checked) < 500_000:
+                ctx.checked.add(t)
+            buf.append(t)
     if sum(len(x) for x in buf) >= RESIDUAL_CHARS:
         flush_residual(buf, ctx, where)
 

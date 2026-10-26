@@ -41,6 +41,7 @@ STATE_NAMES = "|".join(sorted(US_STATES.values(), key=len, reverse=True))
 STATE_ABBR = "|".join(US_STATES)
 
 STREET_SUFFIXES = (
+    "Parade|Frontage Road|Frontage Rd|Frontage|Esplanade|Promenade|Quay|Close|Wynd|Rise|Mews|Chase|Grange|"
     "Alley|Aly|Annex|Arcade|Avenue|Ave|Bayou|Beach|Bend|Bluff|Bluffs|Bottom|Boulevard|Blvd|Branch|Bridge|Brook|"
     "Brooks|Burg|Burgs|Bypass|Camp|Canyon|Cape|Causeway|Center|Centers|Circle|Cir|Circles|Cliff|Cliffs|Club|"
     "Common|Commons|Corner|Corners|Course|Court|Ct|Courts|Cove|Cv|Coves|Creek|Crescent|Crest|Crossing|Xing|"
@@ -178,6 +179,8 @@ update updates meeting meetings team staff admin office reception front desk tri
 care coordinator coordinators coordination case manager management services service support health
 current facility facilities name names raw identified de-identified deidentified de unit units dept department
 data dataset export exports sheet sheets tab tabs table tables contains phi pii raw original copy final draft
+allergies allergy medications medication problems problem procedures results encounters encounter immunizations vital signs vitals careplans plan treatment functional status social history assessment reports report section sections summary
+extended release delayed oral tablet tablets capsule capsules injection injectable solution suspension syringe prefilled inhaler inhalation metered actuat dose doses chewable topical cream ointment patch transdermal nasal spray vial pen auto-injector cartridge drops ophthalmic otic sublingual buccal vaginal rectal suppository powder granules lozenge gel lotion foam elixir syrup kit pack mg ml mcg hr pf preservative free sodium hydrochloride succinate tartrate acetate sulfate phosphate citrate maleate besylate
 child children contrib contribution contributions employer employers employee employees payroll unemployment withholding wage wages tax taxes reconciliation quarterly monthly
 nurse nurses rn lpn lvn cna np aprn pa md therapist therapists counselor counselors clinician clinicians physician physicians doctor doctors provider providers aide aides technician tech psychiatrist psychologist pharmacist chaplain dietitian dietician social worker workers director supervisor administrator charge attending resident resident
 """.split())

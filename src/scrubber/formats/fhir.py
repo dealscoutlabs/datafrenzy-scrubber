@@ -94,11 +94,11 @@ class FhirScrubber:
                     for hn in v:
                         if isinstance(hn, dict):
                             given = [g for g in hn.get("given", []) if isinstance(g, str)]
-                            family = hn.get("family") if isinstance(hn.get("family"), str) else ""
+                            family = _family(hn)
                             full = " ".join(given + [family]).strip()
                             if full:
                                 tok = self.person(full)
-                                for part in given + [family]:
+                                for part in given + family.split():
                                     if len(part) > 1:
                                         self.names.setdefault(part, tok)
                 elif k == "valueString" and "mothersMaidenName" in str(node.get("url", "")):
@@ -184,6 +184,10 @@ class FhirScrubber:
                    "conclusion", "patientInstruction", "summary", "detail"):
             if value in self.kept:
                 return value
+            from .tabular import is_terminology
+            if is_terminology(value):
+                self.kept.add(value)
+                return value
             self.free(None, None, value)
             return _Pending(len(self.pending) - 1)
         if UUID.search(value):
@@ -209,9 +213,11 @@ class FhirScrubber:
 
     def human_name(self, hn: dict) -> dict:
         given = [g for g in hn.get("given", []) if isinstance(g, str)]
-        family = hn.get("family") if isinstance(hn.get("family"), str) else ""
+        family = _family(hn)
         tok = self.person(" ".join(given + [family]).strip() or hn.get("text", ""))
-        if "family" in hn:
+        if isinstance(hn.get("family"), list):         # FHIR DSTU2: family is a list
+            hn["family"] = [tok for _ in hn["family"]]
+        elif "family" in hn:
             hn["family"] = tok
         if "given" in hn:
             hn["given"] = [tok for _ in hn["given"]]
@@ -291,6 +297,13 @@ class FhirScrubber:
             values.append(res.text)
         self.pending = []
         return _resolve(root, values)
+
+
+def _family(hn: dict) -> str:
+    f = hn.get("family")
+    if isinstance(f, list):
+        return " ".join(x for x in f if isinstance(x, str))
+    return f if isinstance(f, str) else ""
 
 
 class _Pending(int):

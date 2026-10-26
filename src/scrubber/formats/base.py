@@ -28,6 +28,8 @@ class Context:
     tally: Tally = field(default_factory=Tally)
     # labels kept as they are from category columns ("Successful Completion"): not re-flagged
     kept: set = field(default_factory=set)
+    # cell texts already queued for the double-check in this file (columns repeat values)
+    checked: set = field(default_factory=set)
 
     @property
     def pseudo(self) -> Pseudonymizer:

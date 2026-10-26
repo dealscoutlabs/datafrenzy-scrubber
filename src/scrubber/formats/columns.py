@@ -8,6 +8,18 @@ from collections import Counter
 
 # Checked in order; first match wins.
 HEADER_RULES: list[tuple[str, str]] = [
+    # GPS coordinates and county/census codes pinpoint a home more precisely than a state
+    ("geo", r"^(lat|lon|lng|long|latitude|longitude)$|latitude|longitude|geo ?(location|code|point)|"
+            r"coordinates|^fips|fips code|county fips|census (tract|block)|geohash"),
+    ("city", r"birth ?place|place of birth|born in|hometown|home town"),
+    # IDs written as one word: PATIENTID, PROVIDERID, SERIES_UID ...
+    ("health_plan", r"^(member|subscriber|policy|insurance|beneficiary)( ?)(id|no|num|number)$"),
+    ("other_id", r"^(patient|provider|claim|encounter|department|patientdepartment|account|payer|organization|"
+                 r"organisation|user|customer|employee|person|client|charge|transaction|appointment|series|"
+                 r"instance|study|sop|procedure|order|visit|admission|referringprovider|supervisingprovider|"
+                 r"primarypatientinsurance|secondarypatientinsurance|patientinsurance|transferout|record|case|"
+                 r"lead|contact|owner|device|location|facility|practitioner|prescription|specimen|accession)"
+                 r"(id|uid|uuid|guid)$|(^| )(uid|uuid|guid)$"),
     ("person_name", r"(holder|subscriber|insured|member|guarantor|beneficiary|policyholder|patient|contact|"
                     r"customer|client|employee|provider|physician|doctor) (full )?name$"),
     ("person_name", r"(therapist|counselor|counsellor|clinician|nurse|physician|doctor|provider|psychiatrist|"
@@ -51,7 +63,7 @@ HEADER_RULES: list[tuple[str, str]] = [
                     r"^(patient|member|subscriber|guarantor|contact|customer|client|provider|physician|doctor|"
                     r"referring|attending|pcp|employee|user|emergency contact|spouse|parent|guardian|"
                     r"next of kin|nok|caregiver|author|sender|recipient|from|to|cc|nurse|therapist|"
-                    r"responsible party|insured|policyholder|policy holder|signer|witness)( name| full name)?$|"
+                    r"responsible party|insured|policyholder|policy holder|signer|witness|maiden)( name| full name)?$|"
                     r"name of|'s name"),
     ("other_id", r"(^| )(id|identifier|uuid|guid)$|claim|\bcase\b|ticket|user ?name|login|handle|twitter|"
                  r"instagram|facebook|tiktok|employee (id|no|num|number)|badge|confirmation|reference|"
@@ -71,7 +83,7 @@ COLUMN_ENTITY = {
     "account": "ACCOUNT_NUMBER", "license": "LICENSE_NUMBER", "vehicle": "VEHICLE_ID", "device": "DEVICE_ID",
     "url": "URL", "ip": "IP_ADDRESS", "biometric": "BIOMETRIC_ID", "other_id": "OTHER_ID",
     "organization": "ORGANIZATION", "address": "STREET_ADDRESS", "city": "LOCATION",
-    "zip": "ZIP_CODE", "dob": "DATE_BIRTH", "date": "DATE", "age": "AGE_OVER_89",
+    "zip": "ZIP_CODE", "dob": "DATE_BIRTH", "date": "DATE", "age": "AGE_OVER_89", "geo": "LOCATION",
 }
 # Detector entity -> column type, for content-based classification.
 ENTITY_COLUMN = {v: k for k, v in COLUMN_ENTITY.items()}
