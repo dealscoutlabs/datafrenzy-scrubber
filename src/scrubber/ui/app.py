@@ -11,9 +11,11 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import secrets
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
@@ -42,6 +44,38 @@ def _mark(text: str | None) -> Markup:
 
 _env.filters["mark"] = _mark
 _env.filters["timestamp"] = lambda t: time.strftime("%b %d, %Y %I:%M %p", time.localtime(float(t or 0)))
+
+# What the double-check found, in words a person can act on (the batch screen's one-line reason).
+FOUND_WORDS = {"PERSON": "name", "DATE": "date", "DATE_TIME": "date", "LOCATION": "place", "STREET_ADDRESS": "address",
+               "ZIP_CODE": "ZIP code", "PHONE_NUMBER": "phone number", "EMAIL_ADDRESS": "email address",
+               "US_SSN": "Social Security number", "URL": "web address", "IP_ADDRESS": "IP address",
+               "ORGANIZATION": "organization name", "MEDICAL_RECORD_NUMBER": "record number",
+               "HEALTH_PLAN_ID": "health plan number", "ACCOUNT_NUMBER": "account number",
+               "LICENSE_NUMBER": "licence number", "VEHICLE_ID": "vehicle number", "DEVICE_ID": "device number"}
+_RESIDUAL = re.compile(r"residual (\w+)")
+
+
+def plain_reason(details: list[dict]) -> str:
+    """'Might still contain 3 names and 1 account number' from the review flags."""
+    found, other = Counter(), []
+    for d in details:
+        m = _RESIDUAL.search(d.get("message") or "")
+        if d.get("kind") == "residual" and m:
+            found[FOUND_WORDS.get(m.group(1), "ID number")] += 1
+        elif d.get("kind") == "context-risk":
+            found["detail that could point to one person"] += 1
+        else:
+            text = (d.get("message") or "").split(": ", 1)[-1]
+            if "OCR confidence" in text:
+                text = "hard-to-read scan, so some text may have been missed"
+            if text and text not in other:
+                other.append(text)
+    parts = [f"{n} {w}" if n == 1 else f"{n} {w.replace('detail', 'details') if w.startswith('detail') else w + 's'}"
+             for w, n in found.most_common()]
+    said = [o[0].upper() + o[1:] for o in other[:2]]
+    if parts:
+        said.insert(0, "Might still contain " + (", ".join(parts[:-1]) + " and " + parts[-1] if len(parts) > 1 else parts[0]))
+    return ". ".join(said) or "The double-check wasn't sure about this file"
 
 
 def file_id(rel: str) -> str:
@@ -140,9 +174,12 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
             ok, why = desktop.lock()
             batch = desktop.batch()
             from ..desktop.app import batch_files
-            rows = [{"name": f["rel"], "status": f["status"], "out_rel": f["out_rel"], "reason": f["reason"] or ""}
+            held = {rv["rel"]: plain_reason(json.loads(rv["details"] or "[]")) for rv in r.store.reviews("pending")}
+            rows = [{"name": f["rel"], "status": f["status"], "out_rel": f["out_rel"], "fid": file_id(f["rel"]),
+                     "reason": held.get(f["rel"], "") if f["status"] == "review" else (f["reason"] or "")}
                     for f in sorted(batch_files(r.store.files()), key=lambda f: f["rel"].lower())]
-            pending_fids = [file_id(rv["rel"]) for rv in r.store.reviews("pending")]
+            rows.sort(key=lambda x: x["status"] != "review")      # what needs a person comes first
+            pending_fids = [file_id(rel) for rel in held]
             return page("desktop_home.html", request, s=s, status=status, requested=requested, running=running,
                         refresh=running or requested, lock_ok=ok, lock=why, batch=batch, rows=rows[:300],
                         more_rows=max(0, len(rows) - 300), pending_fids=pending_fids, pending=len(pending_fids))
@@ -180,7 +217,7 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
         f = find(r, fid)
         rv = next((x for x in r.store.reviews() if x["rel"] == f["rel"]), None)
         details = json.loads(rv["details"] or "[]") if rv else []
-        return page("review_detail.html", request, f=f, fid=fid, rv=rv, details=details,
+        return page("review_detail.html", request, f=f, fid=fid, rv=rv, details=details, why=plain_reason(details),
                     samples=r.store.samples(f["rel"], limit=10), preview=f["kind"] in PREVIEWABLE,
                     deny_types=DENY_TYPES)
 
@@ -197,8 +234,12 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
         except ValueError as exc:
             return back(f"/review/{fid}", str(exc), reviewer)
         r.write_summary()
-        word = "approved and exported" if decision == "approve" else "rejected (not exported)"
-        return back("/review", f"{f['out_rel']}: {word}", reviewer)
+        word = "included" if decision == "approve" else "left out (never exported)"
+        left = [rv["rel"] for rv in r.store.reviews("pending")]
+        if left:
+            return back(f"/review/{file_id(left[0])}",
+                        f"{f['out_rel']}: {word}. {len(left)} more to go; here's the next one.", reviewer)
+        return back("/", f"{f['out_rel']}: {word}. That was the last held file.", reviewer)
 
     @app.post("/review-bulk")
     async def decide_many(csrf_token: str = Form(...), reviewer: str = Form(""), decision: str = Form(...),

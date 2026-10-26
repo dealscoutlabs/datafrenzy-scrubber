@@ -29,12 +29,22 @@ def test_large_zip_is_unpacked_into_files(workspace, synth, run_pipeline):
     assert "export.zip" not in names and len(names) == 13
 
 
-def test_small_zip_stays_one_item(workspace, synth, run_pipeline):
+def test_small_and_nested_zips_are_unpacked_too(workspace, synth, run_pipeline):
+    """Every plain zip is shown file by file, however small, and zips inside zips too."""
+    import io
+    inner = io.BytesIO()
+    with zipfile.ZipFile(inner, "w") as z:
+        z.writestr("deep.txt", synth.note(synth.person()))
     with zipfile.ZipFile(workspace.input / "two.zip", "w") as z:
         for i in range(2):
             z.writestr(f"n{i}.txt", synth.note(synth.person()))
+        z.writestr("more.zip", inner.getvalue())
     runner, _ = run_pipeline(workspace)
-    assert [r["status"] for r in runner.store.files() if r["rel"] == "two.zip"] in (["done"], ["review"])
+    rows = runner.store.files()
+    assert {r["rel"]: r["status"] for r in rows if r["rel"].endswith(".zip")} == {
+        "two.zip": "converted", "two (from zip)/more.zip": "converted"}
+    names = sorted(r["rel"] for r in batch_files(rows))
+    assert names == ["two (from zip)/more (from zip)/deep.txt", "two (from zip)/n0.txt", "two (from zip)/n1.txt"]
 
 
 def test_gzip_file_is_unpacked_and_scrubbed(workspace, synth, run_pipeline):

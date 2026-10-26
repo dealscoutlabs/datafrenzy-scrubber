@@ -3,6 +3,10 @@
 {% block body %}
 <h1>{{ f.rel }}</h1>
 <p class="muted">Exported as <b>{{ f.out_rel }}</b> · status <span class="pill {{ f.status }}">{{ f.status }}</span></p>
+{% if rv and rv.status == 'pending' %}
+<div class="msg"><b>Held for your OK.</b> {{ why }}. Look at what was found and the scrubbed copy below, then choose
+  <a href="#decide">Include it or Leave it out</a> at the bottom.</div>
+{% endif %}
 
 <h2>What the double-check found</h2>
 {% if details %}
@@ -29,15 +33,15 @@
 {% endif %}
 
 {% if rv and rv.status == 'pending' %}
-<h2>Decision</h2>
+<h2 id="decide">Decision</h2>
 <div class="card">
 <form method="post" action="/review/{{ fid }}/approve">
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   <p><label>Your name <input type="text" name="reviewer" value="{{ reviewer }}" required></label></p>
   <p><label>Note (optional)<br><textarea name="note" placeholder="What you checked"></textarea></label></p>
   <div class="inline" style="display:flex;gap:8px;flex-wrap:wrap">
-    <button type="submit">Approve and export</button>
-    <button type="submit" class="danger" formaction="/review/{{ fid }}/reject">Reject (never export)</button>
+    <button type="submit">Include it</button>
+    <button type="submit" class="danger" formaction="/review/{{ fid }}/reject">Leave it out (never exported)</button>
   </div>
 </form>
 </div>

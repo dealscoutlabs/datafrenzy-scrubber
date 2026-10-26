@@ -88,6 +88,10 @@
   button[disabled] { opacity:.45; cursor:not-allowed; filter:none; }
   img.preview { max-width:100%; border:1px solid var(--line); border-radius:10px; background:#fff; }
   .muted { color:var(--muted); } .small { font-size:13px; }
+  a.back { display:inline-flex; align-items:center; gap:6px; margin:0 0 14px; font-weight:600; text-decoration:none; }
+  a.back:hover { text-decoration:underline; }
+  .topbar { border-top:1px solid var(--line); }
+  .topbar .in { padding-top:8px; padding-bottom:8px; }
   .footer { margin-top:44px; color:var(--muted); font-size:13px; }
   @media (prefers-reduced-motion: no-preference) { button, .button, .stat, .drop { transition:all .15s ease; } }
   {% block style %}{% endblock %}
@@ -117,8 +121,11 @@
     <button type="submit" name="mode" value="detailed" class="{{ 'on' if mode == 'detailed' else '' }}" aria-pressed="{{ 'true' if mode == 'detailed' else 'false' }}">Detailed</button>
   </form>
   {% endif %}
-</div></header>
+</div>
+{% block topbar %}{% endblock %}
+</header>
 <main>
+{% if path != '/' %}<a class="back" href="/">&larr; Back to {{ 'your batch' if desktop else 'the overview' }}</a>{% endif %}
 {% if msg %}<div class="msg" role="status">{{ msg }}</div>{% endif %}
 {% block body %}{% endblock %}
 <p class="footer">This {{ 'app' if desktop else 'screen' }} runs only on this computer. Original files shown here never leave it and are never exported. Version {{ version }}.</p>

@@ -52,8 +52,6 @@ UNSUPPORTED = {
     ".svg": "vector images (SVG) are not supported - save as PNG and re-run",
     ".psd": "Photoshop files are not supported - save as PNG/JPEG and re-run",
 }
-ZIP_EXPAND_FILES = 10            # zips with this many files or more are unpacked into separate items
-ZIP_EXPAND_BYTES = 50 << 20     # ... or this much data
 ZIP_MAX_BYTES = 50 << 30        # never unpack more than this (zip bombs)
 SYSTEM_FILES = {".ds_store", "thumbs.db", "desktop.ini", ".localized"}
 
@@ -350,11 +348,17 @@ class Runner:
             self.store.update_file(row["rel"], status="converted", reason="converted to mbox; see derived files")
 
     def convert_archives(self) -> None:
-        """Large plain zips (not Slack exports) are unpacked into the work folder so each file
-        inside is its own work item: scrubbed in parallel, with progress, resumable. Their files
-        come out in a folder named "<zip name> (from zip)". Small zips stay one item."""
+        """Plain zips (not Slack exports) are unpacked into the work folder so each file inside
+        is its own work item, shown and reviewed one by one: scrubbed in parallel, with progress,
+        resumable. Their files come out in a folder named "<zip name> (from zip)". Zips inside
+        zips are unpacked too."""
+        while self._unpack_zips():
+            pass
+
+    def _unpack_zips(self) -> bool:
         import zipfile
         from pathlib import PurePosixPath
+        unpacked = False
         for row in self.store.files("pending"):
             if row["kind"] != "zip":
                 continue
@@ -364,8 +368,6 @@ class Runner:
                     if archive.slack_root([m.filename for m in members]) is not None:
                         continue
                     total = sum(m.file_size for m in members)
-                    if len(members) < ZIP_EXPAND_FILES and total < ZIP_EXPAND_BYTES:
-                        continue
                     if total > ZIP_MAX_BYTES or any(m.flag_bits & 0x1 for m in members):
                         continue  # huge or password-protected: the in-memory path reports it
                     out = self.paths.work / "zip" / _file_id(row["rel"])
@@ -394,6 +396,8 @@ class Runner:
             except (zipfile.BadZipFile, OSError):
                 continue  # the in-memory path quarantines it with the reason
             self.store.update_file(row["rel"], status="converted", reason="unpacked; see the files inside")
+            unpacked = True
+        return unpacked
 
     def convert_gzip(self) -> None:
         """file.csv.gz -> file.csv in the work folder, scrubbed as its own item (exported uncompressed)."""

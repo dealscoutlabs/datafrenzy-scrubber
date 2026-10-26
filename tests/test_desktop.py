@@ -181,3 +181,31 @@ def test_unfinished_batch_offers_continue(workspace, tmp_path, monkeypatch):
     Runner(workspace, load_config(), workers=1, echo=lambda *_: None).scan()
     page = client.get("/").text
     assert "Continue scrubbing" in page and "Nothing could be scrubbed" not in page
+
+
+def test_held_files_explain_themselves(workspace, synth, run_pipeline, tmp_path):
+    """A held file says what was found, links to its page, and that page leads back to the batch."""
+    from scrubber.ui.app import file_id
+    (tmp_path / "config").mkdir()
+    for name in ("a.txt", "b.txt"):
+        (workspace.input / name).write_text(f"{synth.person().name} asked our only pediatric surgeon.\n")
+    (workspace.input / "plain.txt").write_text("Blood pressure was normal.\n")
+    runner, _ = run_pipeline(workspace)
+    held = sorted(rv["rel"] for rv in runner.store.reviews("pending"))
+    assert held == ["a.txt", "b.txt"]
+    client = _client(workspace, tmp_path)
+    page = client.get("/").text
+    assert 'class="topbar"' in page and 'data-app="save_output"' in page        # the bar that stays visible
+    assert "Might still contain 1 detail that could point to one person" in page
+    assert page.index("a.txt") < page.index("plain.txt")                        # held files come first
+    fid = file_id("a.txt")
+    assert f'href="/review/{fid}"' in page and "Include all 2" in page
+    detail = client.get(f"/review/{fid}").text
+    assert 'class="back" href="/"' in detail and "Held for your OK" in detail
+    assert 'class="back"' not in page                                            # no Back on the batch itself
+    token = re.search(r'name="csrf_token" value="([^"]+)"', detail).group(1)
+    r = client.post(f"/review/{fid}/approve", data={"csrf_token": token, "reviewer": "Pat"}, follow_redirects=False)
+    assert r.headers["location"].startswith(f"/review/{file_id('b.txt')}")       # straight on to the next one
+    r = client.post(f"/review/{file_id('b.txt')}/reject", data={"csrf_token": token, "reviewer": "Pat"},
+                    follow_redirects=False)
+    assert r.headers["location"].startswith("/?") and "last" in r.headers["location"]

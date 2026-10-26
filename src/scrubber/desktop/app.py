@@ -247,8 +247,8 @@ def batch_files(rows) -> list:
     or Outlook file is shown as the files inside it."""
     rows = list(rows)
     converted = {r["rel"] for r in rows if r["status"] == "converted"}
-    return [r for r in rows if r["status"] != "removed" and (
-        (not r["parent"] and r["rel"] not in converted) or (r["parent"] in converted))]
+    return [r for r in rows if r["status"] != "removed" and r["rel"] not in converted and (
+        not r["parent"] or r["parent"] in converted)]
 
 
 def batch_counts() -> dict:

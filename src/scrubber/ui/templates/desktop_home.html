@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% set pct = ((status.get('done', 0) / status.get('total')) * 100)|round|int if status.get('total') else 0 %}
+{% set busy = running or requested %}
 {% block style %}
   .drop { display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:10px;
           min-height:230px; border:2px dashed var(--line); border-radius:16px; background:var(--bg);
@@ -24,15 +26,40 @@
   .s-out { background:var(--bad-soft); color:var(--bad); }
   .s-wait { background:var(--surface-2); color:var(--muted); }
   td.name { word-break:break-word; }
+  tr.held td { background:color-mix(in srgb, var(--warn) 5%, transparent); }
+  tr.held a.file { color:var(--fg); font-weight:600; text-decoration:none; }
+  tr.held a.file:hover { text-decoration:underline; }
+  tr.held .why { color:var(--warn); font-size:13px; }
+  a.status { text-decoration:none; }
+  a.status:hover { text-decoration:underline; }
+  .batchbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; }
+  .batchbar .counts { font-size:14px; }
+  .batchbar .row { gap:8px; }
+  .batchbar button { padding:7px 14px; }
+  #ask { scroll-margin-top:150px; }
   .removed { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:4px 22px; }
   .removed div { display:grid; grid-template-columns:1fr auto; gap:2px 10px; padding:7px 0; border-bottom:1px solid var(--line); font-size:14px; }
   .removed small { grid-column:1 / -1; height:4px; border-radius:99px; background:var(--surface-2); overflow:hidden; }
   .removed small i { display:block; height:100%; background:var(--accent); }
   details summary { cursor:pointer; font-weight:600; }
 {% endblock %}
+{% block topbar %}
+{% if rows %}
+<div class="topbar"><div class="in batchbar">
+  <span class="counts"><b>This batch · {{ batch.files }} file{{ 's' if batch.files != 1 }}</b>
+    {%- if running %} · Scrubbing… {{ pct }}%{% elif requested %} · Starting…{% else %}
+    {%- if batch.exported %} · <b class="ok">{{ batch.exported }} ready</b>{% endif %}
+    {%- if batch.review %} · <a href="#ask" class="pending"><b>{{ batch.review }} need{{ 's' if batch.review == 1 }} your OK</b></a>{% endif %}
+    {%- if batch.not_exported %} · <b class="rejected">{{ batch.not_exported }} not exported</b>{% endif %}{% endif %}</span>
+  <div class="row">
+    <button type="button" data-app="save_output" {{ 'disabled' if busy or not batch.exported else '' }}>Save cleaned files…</button>
+    <button type="button" class="secondary" data-app="new_batch" {{ 'disabled' if busy else '' }}
+      data-confirm="Start a new batch? The files in this one are cleared from the app (save the cleaned files first). Your originals and anything you saved stay where they are.">New batch</button>
+  </div>
+</div></div>
+{% endif %}
+{% endblock %}
 {% block body %}
-{% set pct = ((status.get('done', 0) / status.get('total')) * 100)|round|int if status.get('total') else 0 %}
-{% set busy = running or requested %}
 <h1>Scrub your files</h1>
 <p class="lede">Add files and they're scrubbed right away, on this computer: names, dates, ID numbers and other personal
 details are removed from a copy. Then save the cleaned files wherever you like. Your originals are never changed.</p>
@@ -52,14 +79,7 @@ details are removed from a copy. Then save the cleaned files wherever you like. 
 
 {% if rows %}
 <section class="card" aria-labelledby="batch-h">
-  <div class="head">
-    <h2 id="batch-h">This batch · {{ batch.files }} file{{ 's' if batch.files != 1 }}</h2>
-    <div class="row">
-      <button type="button" class="big" data-app="save_output" {{ 'disabled' if busy or not batch.exported else '' }}>Save cleaned files…</button>
-      <button type="button" class="secondary" data-app="new_batch" {{ 'disabled' if busy else '' }}
-        data-confirm="Start a new batch? The files in this one are cleared from the app (save the cleaned files first). Your originals and anything you saved stay where they are.">New batch</button>
-    </div>
-  </div>
+  <div class="head"><h2 id="batch-h">This batch · {{ batch.files }} file{{ 's' if batch.files != 1 }}</h2></div>
 
   {% if running %}
     <b>Scrubbing… {{ pct }}%</b>
@@ -83,17 +103,19 @@ details are removed from a copy. Then save the cleaned files wherever you like. 
   {% endif %}
 
   {% if pending and not busy %}
-  <form method="post" action="/review-bulk" class="ask">
+  <form method="post" action="/review-bulk" class="ask" id="ask">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
     <input type="hidden" name="decision" value="approve">
     <input type="hidden" name="next" value="/">
     {% for fid in pending_fids %}<input type="hidden" name="fids" value="{{ fid }}">{% endfor %}
     <p><b>{{ pending }} file{{ 's' if pending != 1 }} need{{ 's' if pending == 1 }} your OK.</b> The double-check spotted
-      something it wasn't sure about, so {{ 'these are' if pending != 1 else 'it is' }} held back until a person agrees.</p>
+      something it wasn't sure about, so {{ 'these are' if pending != 1 else 'it is' }} held back until a person agrees.
+      {{ 'They are' if pending != 1 else 'It is' }} at the top of the list below with what was found. Click a file to see it
+      and decide, or include {{ 'them all' if pending != 1 else 'it' }} now.</p>
     <div class="row">
       <label>Your name <input type="text" name="reviewer" value="{{ reviewer }}" required></label>
-      <button type="submit">Include {{ 'them' if pending != 1 else 'it' }}</button>
-      <a class="button secondary" href="/review">Look first</a>
+      <button type="submit">Include {{ 'all ' ~ pending if pending != 1 else 'it' }}</button>
+      <a class="button secondary" href="/review/{{ pending_fids[0] }}">{{ 'Go through them one by one' if pending != 1 else 'Look first' }}</a>
     </div>
   </form>
   {% endif %}
@@ -105,8 +127,14 @@ details are removed from a copy. Then save the cleaned files wherever you like. 
     {% elif r.status == 'review' %}{% set cls, label = 's-review', 'Needs your OK' %}
     {% elif r.status in ('quarantined', 'failed', 'rejected') %}{% set cls, label = 's-out', 'Not exported' %}
     {% else %}{% set cls, label = 's-wait', 'Scrubbing…' %}{% endif %}
+    {% if r.status == 'review' %}
+    <tr class="held"><td class="name"><a class="file" href="/review/{{ r.fid }}">{{ r.name }}</a>
+        <div class="why">{{ r.reason }}. <a href="/review/{{ r.fid }}">Look and decide &rarr;</a></div></td>
+      <td><a class="status {{ cls }}" href="/review/{{ r.fid }}">{{ label }}</a></td>
+    {% else %}
     <tr><td class="name">{{ r.name }}{% if cls == 's-out' and r.reason %}<div class="note">{{ r.reason }}</div>{% endif %}</td>
       <td><span class="status {{ cls }}">{{ label }}</span></td>
+    {% endif %}
       {% if mode == 'detailed' %}<td class="name small">{{ r.out_rel or '' }}</td>{% endif %}</tr>
     {% endfor %}
     {% if more_rows %}<tr><td colspan="3" class="note">and {{ more_rows }} more</td></tr>{% endif %}
