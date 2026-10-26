@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Known fine{% endblock %}
+{% block body %}
+<h1>Known fine</h1>
+<p class="lede">Text someone marked <b>Good</b> in the card review. The double-check doesn't flag these again, in this batch
+or later ones. Only the exact text counts (capitals and spacing aside). If one was a mistake, remove it: it will be flagged
+again from the next scrub on. Files already saved aren't changed.</p>
+{% if rows %}
+<div class="wrap"><table><tr><th>Text</th><th>Marked Good by</th><th>On</th><th></th></tr>
+{% for e in rows|sort(attribute='text') %}
+<tr><td>{{ e.text }}</td><td>{{ e.by }}</td><td>{{ e.on }}</td><td>
+<form method="post" action="/known-fine/remove" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}">
+<input type="hidden" name="text" value="{{ e.text }}"><button type="submit" class="secondary">Remove</button></form></td></tr>
+{% endfor %}
+</table></div>
+{% else %}<div class="card">Nothing yet. Items you mark Good in the card review appear here.</div>{% endif %}
+{% endblock %}

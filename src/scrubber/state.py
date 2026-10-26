@@ -61,6 +61,10 @@ CREATE TABLE IF NOT EXISTS samples (              -- before/after text for the r
 CREATE TABLE IF NOT EXISTS misses (               -- identifiers a reviewer reported as missed (local only)
     id INTEGER PRIMARY KEY, rel TEXT, term TEXT, etype TEXT, note TEXT, reported_by TEXT, reported_at REAL
 );
+CREATE TABLE IF NOT EXISTS cards (                -- card review: one decision per flagged item (local only)
+    card TEXT PRIMARY KEY, value TEXT, etype TEXT, decision TEXT, decided_by TEXT, decided_at REAL,
+    applied INTEGER NOT NULL DEFAULT 0
+);
 """
 
 MIGRATIONS = [("files", "messages", "INTEGER"), ("review", "details", "TEXT")]
@@ -249,7 +253,7 @@ class Store:
         last batch. Pseudonyms stay, so the same person keeps the same token in the next batch."""
         with self.tx() as c:
             for table in ("files", "shards", "quarantine", "review", "review_log", "samples", "misses",
-                          "known_entities"):
+                          "known_entities", "cards"):
                 c.execute(f"DELETE FROM {table}")  # noqa: S608 - fixed table names
 
     def review_log(self) -> list[sqlite3.Row]:
@@ -275,6 +279,20 @@ class Store:
 
     def misses(self) -> list[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM misses ORDER BY reported_at").fetchall()
+
+    def decide_card(self, card: str, value: str | None, etype: str | None, decision: str, by: str) -> None:
+        self.conn.execute("INSERT OR REPLACE INTO cards (card, value, etype, decision, decided_by, decided_at, applied)"
+                          " VALUES (?,?,?,?,?,?,0)", (card, value, etype, decision, by, time.time()))
+
+    def undo_card(self, card: str) -> bool:
+        """Take back a decision that hasn't been applied yet."""
+        return self.conn.execute("DELETE FROM cards WHERE card=? AND applied=0", (card,)).rowcount > 0
+
+    def cards(self) -> dict[str, sqlite3.Row]:
+        return {r["card"]: r for r in self.conn.execute("SELECT * FROM cards")}
+
+    def mark_cards_applied(self) -> None:
+        self.conn.execute("UPDATE cards SET applied=1 WHERE applied=0")
 
     def reviews(self, status: str | None = None) -> list[sqlite3.Row]:
         if status:

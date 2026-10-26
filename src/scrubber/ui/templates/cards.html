@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Review held items{% endblock %}
+{% block style %}
+  .deckhead { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px 18px; margin-bottom:12px; }
+  .deckhead h1 { margin:0; }
+  .who input { width:190px; }
+  .progress { height:8px; border-radius:99px; background:var(--surface-2); overflow:hidden; margin:0 0 16px; }
+  .progress > i { display:block; height:100%; width:0; background:var(--accent); transition:width .15s ease; }
+  .playing { max-width:860px; margin:0 auto; }
+  .card.deal { padding:18px; }
+  .shot { display:flex; justify-content:center; background:#fff; border:1px solid var(--line); border-radius:12px;
+          overflow:hidden; min-height:120px; margin-bottom:14px; }
+  .shot img { display:block; max-width:100%; max-height:46vh; object-fit:contain; }
+  .text { font:15px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space:pre-wrap; word-break:break-word;
+          background:var(--bg); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:14px; max-height:40vh; overflow:auto; }
+  .q { font-size:18px; margin:0 0 4px; }
+  .q b { background:var(--mark); border-radius:4px; padding:0 4px; }
+  .where { color:var(--muted); font-size:13px; margin:0; word-break:break-word; }
+  .choices { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:16px; }
+  .choices button { justify-content:center; font-size:19px; padding:18px; border-radius:14px; }
+  .choices kbd { font:12px ui-monospace, Menlo, monospace; border:1px solid currentColor; border-radius:5px; padding:1px 6px; opacity:.8; }
+  .after { display:flex; flex-wrap:wrap; justify-content:space-between; gap:10px; margin-top:12px; font-size:14px; }
+  .after a { cursor:pointer; }
+  .gone { text-align:center; padding:40px 20px; }
+  .hint { font-size:13px; color:var(--muted); text-align:center; margin-top:10px; }
+  .err { color:var(--bad); font-weight:600; min-height:1.4em; text-align:center; margin-top:8px; }
+{% endblock %}
+{% block body %}
+<div class="playing">
+  <div class="deckhead">
+    <h1>Review held items</h1>
+    <label class="who">Your name <input type="text" id="who" value="{{ reviewer }}" autocomplete="name" placeholder="Needed once"></label>
+  </div>
+  <p class="lede" style="margin-bottom:12px">Each card is one thing the double-check wasn't sure about, shown where it sits in the
+    cleaned file. <b>Good</b> leaves it as it is in every file it's in, and it won't be asked about again. <b>PII</b>
+    blacks it out in every file. Your name is recorded with each choice.</p>
+  <div class="progress" aria-hidden="true"><i id="bar"></i></div>
+
+  {% if total %}
+  <section class="card deal" id="deal" aria-live="polite">
+    <div class="shot" id="shot" hidden><img id="img" alt="Where the item sits in the cleaned file"></div>
+    <div class="text" id="text" hidden></div>
+    <p class="q" id="q"></p>
+    <p class="where" id="where"></p>
+    <div class="choices">
+      <button type="button" class="danger" id="pii"><kbd>&larr;</kbd> <span id="pii-label">PII</span></button>
+      <button type="button" id="good"><span id="good-label">Good</span> <kbd>&rarr;</kbd></button>
+    </div>
+    <div class="after">
+      <span class="muted"><span id="pos">1</span> of {{ total }}</span>
+      <span><a id="undo" role="button" tabindex="0">Undo (Z)</a> · <a id="stop" role="button" tabindex="0">Finish now and apply</a></span>
+    </div>
+    <p class="err" id="err" role="alert"></p>
+  </section>
+  <p class="hint">Keys: &larr; or P for PII, &rarr; or G for Good, Z to undo.</p>
+  {% else %}
+  <section class="card gone"><b>Nothing waiting.</b> Every held item has been decided.</section>
+  {% endif %}
+
+  <form method="post" action="/cards/finish" id="finish">
+    <input type="hidden" name="csrf_token" id="csrf" value="{{ csrf }}">
+    <input type="hidden" name="reviewer" id="finish-who" value="{{ reviewer }}">
+  </form>
+</div>
+<script src="/static/cards.js" defer></script>
+{% endblock %}

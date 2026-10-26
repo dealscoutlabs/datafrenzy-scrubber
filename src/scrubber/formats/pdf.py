@@ -324,14 +324,14 @@ def verify_pdf(data: bytes, pages: int, removed: list[str], ctx: Context, item: 
         for page in doc:
             text = page.get_text(sort=True)  # by position: tokens drawn in place read in place
             full.append(text)
-            ctx.residual(text, f"{item} page {page.number + 1}")
+            ctx.residual(text, f"{item} page {page.number + 1}", page.number + 1)
             if _image_share(page) > SCANNED_IMAGE_SHARE:
                 import numpy as np
 
                 from ..detect.vision import ocr_text
                 from .image import vision
                 img = _render(page, int(ctx.cfg["images"]["scanned_pdf_dpi"]))
-                ctx.residual(ocr_text(img), f"{item} page {page.number + 1} (scanned)")
+                ctx.residual(ocr_text(img), f"{item} page {page.number + 1} (scanned)", page.number + 1)
                 if vision(ctx).faces.detect(np.array(img)):
                     ctx.issue(f"{item} page {page.number + 1}: a face is still detectable")
             for annot in page.annots() or []:

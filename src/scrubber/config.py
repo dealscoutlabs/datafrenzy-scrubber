@@ -63,6 +63,8 @@ def data_fingerprint() -> str:
 
 def config_hash(cfg: dict) -> str:
     """Hash of everything that changes scrubbing output: config, bundled data, version."""
+    # known_fine only quiets the double-check: adding to it never needs a re-scrub
+    cfg = {k: v for k, v in cfg.items() if k != "known_fine"}
     payload = json.dumps({"config": cfg, "data": data_fingerprint(), "version": __version__},
                          sort_keys=True, default=str)
     return hashlib.sha256(payload.encode()).hexdigest()
@@ -77,6 +79,11 @@ def load_name_list(filename: str) -> frozenset[str]:
     return frozenset(line.strip().upper() for line in (DATA_DIR / filename).read_text().splitlines() if line.strip())
 
 
+def _save_additions(path: Path, data: dict) -> None:
+    path.write_text("# Added on the review screen (deny list, known-fine texts). Merged in on every run.\n"
+                    + yaml.safe_dump(data, sort_keys=True, allow_unicode=True))
+
+
 def add_deny_terms(user_path: str | Path, etype: str, terms: list[str]) -> None:
     """Append terms to the review-additions file next to the user's config."""
     path = Path(user_path).with_name(ADDITIONS_FILE)
@@ -87,8 +94,33 @@ def add_deny_terms(user_path: str | Path, etype: str, terms: list[str]) -> None:
         t = t.strip()
         if t and t not in bucket:
             bucket.append(t)
-    path.write_text("# Added on the review screen. Merged into the deny list on every run.\n"
-                    + yaml.safe_dump(data, sort_keys=True, allow_unicode=True))
+    _save_additions(path, data)
+
+
+def add_known_fine(user_path: str | Path, texts: list[str], by: str) -> None:
+    """Remember texts a reviewer marked Good in the card review, so the double-check stops
+    flagging them in later files and batches. Exact text only (case and spacing aside)."""
+    path = Path(user_path).with_name(ADDITIONS_FILE)
+    data = (yaml.safe_load(path.read_text()) if path.is_file() else None) or {}
+    bucket = data.setdefault("known_fine", [])
+    have = {e["text"] for e in bucket}
+    when = dt.date.today().isoformat()
+    bucket += [{"text": t.strip(), "by": by, "on": when} for t in dict.fromkeys(texts) if t.strip() and t.strip() not in have]
+    _save_additions(path, data)
+
+
+def known_fine_list(user_path: str | Path) -> list[dict]:
+    path = Path(user_path).with_name(ADDITIONS_FILE)
+    return ((yaml.safe_load(path.read_text()) or {}).get("known_fine") or []) if path.is_file() else []
+
+
+def remove_known_fine(user_path: str | Path, text: str) -> None:
+    path = Path(user_path).with_name(ADDITIONS_FILE)
+    if not path.is_file():
+        return
+    data = yaml.safe_load(path.read_text()) or {}
+    data["known_fine"] = [e for e in data.get("known_fine") or [] if e["text"] != text]
+    _save_additions(path, data)
 
 
 def remove_deny_term(user_path: str | Path, etype: str, term: str) -> None:
@@ -99,8 +131,7 @@ def remove_deny_term(user_path: str | Path, etype: str, term: str) -> None:
     bucket = (data.get("deny_list") or {}).get(etype) or []
     if term in bucket:
         bucket.remove(term)
-        path.write_text("# Added on the review screen. Merged into the deny list on every run.\n"
-                        + yaml.safe_dump(data, sort_keys=True, allow_unicode=True))
+        _save_additions(path, data)
 
 
 def deny_additions(user_path: str | Path) -> dict:

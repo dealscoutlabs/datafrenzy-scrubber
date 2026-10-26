@@ -20,15 +20,16 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from jinja2 import Environment, PackageLoader, select_autoescape
 from markupsafe import Markup, escape
 
 from .. import __version__
-from ..config import add_deny_terms, deny_additions, load_config, remove_deny_term
+from ..config import add_deny_terms, deny_additions, known_fine_list, load_config, remove_deny_term, remove_known_fine
 from ..identifiers import TOKEN_PREFIX
 from ..pipeline import Paths, Runner
 from ..state import Store
+from . import cards as card_review
 
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1"}
 PREVIEWABLE = {"image", "pdf", "dicom"}
@@ -130,6 +131,19 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
         if reviewer is not None and not reviewer.strip():
             raise HTTPException(400, "Please enter your name, so the decision can be recorded.")
 
+    def request_rerun() -> str | None:
+        """Ask the scrubber to run again; returns why it can't, or None."""
+        if desktop is not None:
+            ok, why = desktop.lock()
+            if not ok:
+                return f"Can't start: {why}"
+            if not paths.input.is_dir() or not any(paths.input.iterdir()):
+                return "Add files to scrub first."
+        req = paths.work / "requests"
+        req.mkdir(parents=True, exist_ok=True)
+        (req / "rerun.json").write_text(json.dumps({"requested_at": time.time()}))
+        return None
+
     def find(r: Runner, fid: str):
         for f in r.store.files():
             if file_id(f["rel"]) == fid:
@@ -154,7 +168,9 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
         resp.headers["Cache-Control"] = "no-store"
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["X-Content-Type-Options"] = "nosniff"
-        resp.headers["Referrer-Policy"] = "no-referrer"
+        # same-origin, not no-referrer: with no-referrer Chrome sends "Origin: null" on form posts,
+        # which the check above (rightly) refuses outside the desktop window
+        resp.headers["Referrer-Policy"] = "same-origin"
         # the desktop window (pywebview) runs its own scripts through eval(), e.g. to receive dropped files
         script = "; script-src 'self' 'unsafe-eval'" if desktop else ""
         resp.headers["Content-Security-Policy"] = ("default-src 'self'; img-src 'self' data:; style-src 'self' "
@@ -180,9 +196,11 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
                     for f in sorted(batch_files(r.store.files()), key=lambda f: f["rel"].lower())]
             rows.sort(key=lambda x: x["status"] != "review")      # what needs a person comes first
             pending_fids = [file_id(rel) for rel in held]
+            cards = len(card_review.deck(r.store)) if held else 0
             return page("desktop_home.html", request, s=s, status=status, requested=requested, running=running,
                         refresh=running or requested, lock_ok=ok, lock=why, batch=batch, rows=rows[:300],
-                        more_rows=max(0, len(rows) - 300), pending_fids=pending_fids, pending=len(pending_fids))
+                        more_rows=max(0, len(rows) - 300), pending_fids=pending_fids, pending=len(pending_fids),
+                        cards=cards)
         return page("index.html", request, s=s, status=status, requested=requested, running=running,
                     refresh=running or requested, app=None, pending=len(r.store.reviews("pending")),
                     now=time.time())
@@ -286,6 +304,84 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
             back_to = "/samples"
         return back(back_to, "Added to the deny list. Press Re-run on the home page to apply it.", reviewer)
 
+    # ------------------------------------------------------------ card review
+    @app.get("/cards", response_class=HTMLResponse)
+    async def cards_page(request: Request):
+        return page("cards.html", request, total=len(card_review.deck(runner().store)))
+
+    @app.get("/cards/deck.json")
+    async def cards_deck():
+        return JSONResponse(card_review.deck(runner().store))
+
+    @app.get("/cards/crop/{cid}.png")
+    async def card_crop(cid: str):
+        r = runner()
+        spot = card_review.find_spot(r.store, cid) if re.fullmatch(r"[vf][0-9a-f]{16}", cid) else None
+        if spot is None or spot[0]["kind"] not in card_review.CROPPABLE:
+            raise HTTPException(404)
+        f, page_no, value = spot
+        path = paths.staging / f["out_rel"]
+        png = card_review.crop_png(path, f["kind"], page_no or 1, value) if path.exists() else None
+        if png is None:
+            raise HTTPException(404, "Not available")
+        return Response(png, media_type="image/png")
+
+    @app.post("/cards/decide")
+    async def card_decide(csrf_token: str = Form(...), reviewer: str = Form(""), card: str = Form(...),
+                          decision: str = Form(...)):
+        check_form(csrf_token, reviewer)
+        if decision not in ("good", "pii"):
+            raise HTTPException(404)
+        r = runner()
+        spot = card_review.find_spot(r.store, card)
+        if spot is None:
+            raise HTTPException(404, "That card is gone. Reload the page.")
+        value, etype = None, None
+        for rv in r.store.reviews("pending"):
+            for d in json.loads(rv["details"] or "[]"):
+                if card_review.card_id(d, rv["rel"]) == card:
+                    value, etype, _ = card_review._flag_parts(d)
+                    break
+            if value is not None:
+                break
+        r.store.decide_card(card, value if card.startswith("v") else None, etype, decision, reviewer.strip())
+        resp = JSONResponse({"ok": True})
+        resp.set_cookie("reviewer", reviewer.strip(), samesite="strict", httponly=True)
+        return resp
+
+    @app.post("/cards/undo")
+    async def card_undo(csrf_token: str = Form(...), card: str = Form(...)):
+        check_form(csrf_token, None)
+        return JSONResponse({"ok": runner().store.undo_card(card)})
+
+    @app.post("/cards/finish")
+    async def cards_finish(csrf_token: str = Form(...), reviewer: str = Form("")):
+        check_form(csrf_token, reviewer)
+        r = runner()
+        res = card_review.finish(r, config_path, reviewer.strip())
+        said = []
+        if res["released"]:
+            said.append(f"{res['released']} file{'s' if res['released'] != 1 else ''} moved to Ready")
+        if res["left_out"]:
+            said.append(f"{res['left_out']} left out")
+        if res["rerun"]:
+            refused = request_rerun()
+            said.append(refused or "the items you marked PII are being blacked out now (the batch is re-cleaned)")
+        if res["waiting"]:
+            said.append(f"{res['waiting']} still need{'s' if res['waiting'] == 1 else ''} a decision")
+        msg = ("Done: " + "; ".join(said) + ".") if said else "Nothing to apply."
+        return back("/", msg[0].upper() + msg[1:], reviewer)
+
+    @app.get("/known-fine", response_class=HTMLResponse)
+    async def known_fine_page(request: Request):
+        return page("known_fine.html", request, rows=known_fine_list(config_path))
+
+    @app.post("/known-fine/remove")
+    async def known_fine_remove(csrf_token: str = Form(...), text: str = Form(...)):
+        check_form(csrf_token, None)
+        remove_known_fine(config_path, text)
+        return back("/known-fine", "Removed. It will be flagged again from the next scrub on.")
+
     @app.get("/deny-list", response_class=HTMLResponse)
     async def deny_list(request: Request):
         return page("deny.html", request, additions=deny_additions(config_path), deny_types=DENY_TYPES)
@@ -303,21 +399,15 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
     @app.post("/rerun")
     async def rerun(csrf_token: str = Form(...)):
         check_form(csrf_token, None)
-        if desktop is not None:
-            ok, why = desktop.lock()
-            if not ok:
-                return back("/", f"Can't start: {why}")
-            if not paths.input.is_dir() or not any(paths.input.iterdir()):
-                return back("/", "Add files to scrub first.")
-        req = paths.work / "requests"
-        req.mkdir(parents=True, exist_ok=True)
-        (req / "rerun.json").write_text(json.dumps({"requested_at": time.time()}))
+        refused = request_rerun()
+        if refused:
+            return back("/", refused)
         return back("/", "Starting…" if desktop is not None else
                     "Re-run requested. The scrubber picks it up within a few seconds.")
 
     @app.get("/static/{name}.js")
     async def static_js(name: str):
-        if name not in ("desktop", "review"):
+        if name not in ("desktop", "review", "cards"):
             raise HTTPException(404)
         return Response((Path(__file__).with_name("static") / f"{name}.js").read_text(),
                         media_type="text/javascript")

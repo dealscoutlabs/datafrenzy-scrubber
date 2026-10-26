@@ -103,21 +103,23 @@ details are removed from a copy. Then save the cleaned files wherever you like. 
   {% endif %}
 
   {% if pending and not busy %}
-  <form method="post" action="/review-bulk" class="ask" id="ask">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <input type="hidden" name="decision" value="approve">
-    <input type="hidden" name="next" value="/">
-    {% for fid in pending_fids %}<input type="hidden" name="fids" value="{{ fid }}">{% endfor %}
-    <p><b>{{ pending }} file{{ 's' if pending != 1 }} need{{ 's' if pending == 1 }} your OK.</b> The double-check spotted
-      something it wasn't sure about, so {{ 'these are' if pending != 1 else 'it is' }} held back until a person agrees.
-      {{ 'They are' if pending != 1 else 'It is' }} at the top of the list below with what was found. Click a file to see it
-      and decide, or include {{ 'them all' if pending != 1 else 'it' }} now.</p>
+  <div class="ask" id="ask">
+    <p><b>{{ pending }} file{{ 's' if pending != 1 }} need{{ 's' if pending == 1 }} your OK.</b> The double-check found
+      {{ cards }} thing{{ 's' if cards != 1 }} it wasn't sure about. Go through them as quick cards: each shows the spot in
+      the cleaned file, and one key press decides it for every file it's in. Files move to Ready once their cards are done.</p>
     <div class="row">
-      <label>Your name <input type="text" name="reviewer" value="{{ reviewer }}" required></label>
-      <button type="submit">Include {{ 'all ' ~ pending if pending != 1 else 'it' }}</button>
-      <a class="button secondary" href="/review/{{ pending_fids[0] }}">{{ 'Go through them one by one' if pending != 1 else 'Look first' }}</a>
+      <a class="button" href="/cards">Review {{ cards }} item{{ 's' if cards != 1 }}</a>
+      <form method="post" action="/review-bulk" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <input type="hidden" name="decision" value="approve">
+        <input type="hidden" name="next" value="/">
+        {% for fid in pending_fids %}<input type="hidden" name="fids" value="{{ fid }}">{% endfor %}
+        <span class="note">or, without looking:</span>
+        <label>Your name <input type="text" name="reviewer" value="{{ reviewer }}" required></label>
+        <button type="submit" class="secondary">Include {{ 'all ' ~ pending if pending != 1 else 'it' }}</button>
+      </form>
     </div>
-  </form>
+  </div>
   {% endif %}
 
   <div class="wrap"><table>
