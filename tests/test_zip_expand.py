@@ -35,3 +35,16 @@ def test_small_zip_stays_one_item(workspace, synth, run_pipeline):
             z.writestr(f"n{i}.txt", synth.note(synth.person()))
     runner, _ = run_pipeline(workspace)
     assert [r["status"] for r in runner.store.files() if r["rel"] == "two.zip"] in (["done"], ["review"])
+
+
+def test_gzip_file_is_unpacked_and_scrubbed(workspace, synth, run_pipeline):
+    import gzip
+    p = synth.person()
+    with gzip.open(workspace.input / "patients.csv.gz", "wt") as fh:
+        fh.write(f"Patient Name,SSN,drug\n{p.name},{p.ssn},Fentanyl Citrate\n")
+    runner, _ = run_pipeline(workspace)
+    rows = {r["rel"]: r for r in runner.store.files()}
+    assert rows["patients.csv.gz"]["status"] == "converted" and rows["patients.csv"]["status"] in ("done", "review")
+    out = (list(workspace.released.rglob("patients.csv")) + list((workspace.work / "staging").rglob("patients.csv")))[0]
+    text = out.read_text()
+    assert p.last not in text and p.ssn not in text and "Fentanyl Citrate" in text

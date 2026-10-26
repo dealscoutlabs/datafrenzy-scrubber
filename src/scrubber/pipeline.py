@@ -37,10 +37,10 @@ from .transform.scrub import Tally, TextScrubber
 log = logging.getLogger("scrubber")
 
 SUPPORTED = {".eml": "eml", ".mbox": "mbox", ".mbx": "mbox", ".pst": "pst", ".ost": "pst", ".csv": "csv",
-             ".tsv": "csv", ".xlsx": "xlsx", ".ods": "ods", ".xml": "xml", ".cda": "xml", ".ccd": "xml", ".ccda": "xml", ".hl7": "hl7", ".er7": "hl7", ".hl7v2": "hl7", ".txt": "text", ".text": "text", ".md": "text", ".log": "text",
+             ".tsv": "csv", ".xlsx": "xlsx", ".ods": "ods", ".xml": "xml", ".cda": "xml", ".ccd": "xml", ".ccda": "xml", ".hl7": "hl7", ".er7": "hl7", ".hl7v2": "hl7", ".gz": "gzip", ".txt": "text", ".text": "text", ".md": "text", ".log": "text",
              ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl", ".zip": "zip", ".docx": "docx", ".pdf": "pdf",
              ".dcm": "dicom", ".dicom": "dicom", **{e: "image" for e in IMAGE_EXT}}
-HANDLED = {"eml", "mbox", "csv", "xlsx", "ods", "xml", "hl7", "text", "json", "jsonl", "zip", "docx", "pdf", "image", "dicom", "media"}
+HANDLED = {"eml", "mbox", "csv", "xlsx", "ods", "xml", "hl7", "gzip", "text", "json", "jsonl", "zip", "docx", "pdf", "image", "dicom", "media"}
 MEDIA_REASON = "audio/video contains voiceprints (biometric identifier) - never exported"
 NO_WHISPER = ("audio/video contains voiceprints (biometric identifier) - never exported; transcription is "
               "turned on but this install has no Whisper model (rebuild with WITH_WHISPER=1)")
@@ -395,6 +395,42 @@ class Runner:
                 continue  # the in-memory path quarantines it with the reason
             self.store.update_file(row["rel"], status="converted", reason="unpacked; see the files inside")
 
+    def convert_gzip(self) -> None:
+        """file.csv.gz -> file.csv in the work folder, scrubbed as its own item (exported uncompressed)."""
+        import gzip
+        for row in self.store.files("pending"):
+            if row["kind"] != "gzip":
+                continue
+            inner = Path(row["rel"]).name[:-3] or "file"
+            out = self.paths.work / "gz" / _file_id(row["rel"])
+            if out.exists():
+                shutil.rmtree(out)
+            out.mkdir(parents=True)
+            target = out / inner
+            try:
+                with gzip.open(row["src"], "rb") as fin, open(target, "wb") as fout:
+                    copied = 0
+                    while chunk := fin.read(1 << 20):
+                        copied += len(chunk)
+                        if copied > ZIP_MAX_BYTES:
+                            raise OSError("too large when unpacked")
+                        fout.write(chunk)
+            except (OSError, EOFError, gzip.BadGzipFile) as exc:
+                self.store.update_file(row["rel"], status="quarantined",
+                                       reason=f"gzip file could not be unpacked ({type(exc).__name__})")
+                continue
+            parent = str(Path(row["rel"]).parent)
+            derived = (f"{parent}/" if parent != "." else "") + inner
+            if self.store.file(derived) and not self.store.file(derived)["parent"]:
+                derived = derived + " (from gz)"
+            kind, reason = classify(target)
+            st = target.stat()
+            status = self.store.upsert_file(derived, str(target), kind, st.st_size, f"{st.st_size}:{st.st_mtime_ns}",
+                                            self.chash, parent=row["rel"])
+            if reason and status == "pending":
+                self.store.update_file(derived, status="quarantined", reason=reason)
+            self.store.update_file(row["rel"], status="converted", reason="unpacked; see the file inside")
+
     def harvest(self) -> None:
         todo = [r for r in self.store.files("pending")
                 if r["kind"] in ("eml", "mbox", "csv", "xlsx", "ods", "zip", "json", "xml") and not r["harvested"]]
@@ -570,7 +606,7 @@ class Runner:
             derived = [r for r in self.store.files() if r["parent"] == row["rel"]]
             if derived and all(r["status"] in ("done", "review", "quarantined", "rejected") for r in derived):
                 if all(r["status"] != "review" for r in derived):
-                    for kind in ("pst", "zip"):
+                    for kind in ("pst", "zip", "gz"):
                         shutil.rmtree(self.paths.work / kind / _file_id(row["rel"]), ignore_errors=True)
 
     # -- review decisions (the Phase 4 UI calls these too)
@@ -664,6 +700,7 @@ class Runner:
         self.scan()
         self.convert_pst()
         self.convert_archives()
+        self.convert_gzip()
         self.harvest()
         self.echo("Loading the language model (offline) ...")
         self.build_scrubber()
