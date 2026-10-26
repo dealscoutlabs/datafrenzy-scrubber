@@ -37,10 +37,10 @@ from .transform.scrub import Tally, TextScrubber
 log = logging.getLogger("scrubber")
 
 SUPPORTED = {".eml": "eml", ".mbox": "mbox", ".mbx": "mbox", ".pst": "pst", ".ost": "pst", ".csv": "csv",
-             ".tsv": "csv", ".xlsx": "xlsx", ".ods": "ods", ".xml": "xml", ".cda": "xml", ".ccd": "xml", ".ccda": "xml", ".txt": "text", ".text": "text", ".md": "text", ".log": "text",
+             ".tsv": "csv", ".xlsx": "xlsx", ".ods": "ods", ".xml": "xml", ".cda": "xml", ".ccd": "xml", ".ccda": "xml", ".hl7": "hl7", ".er7": "hl7", ".hl7v2": "hl7", ".txt": "text", ".text": "text", ".md": "text", ".log": "text",
              ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl", ".zip": "zip", ".docx": "docx", ".pdf": "pdf",
              ".dcm": "dicom", ".dicom": "dicom", **{e: "image" for e in IMAGE_EXT}}
-HANDLED = {"eml", "mbox", "csv", "xlsx", "ods", "xml", "text", "json", "jsonl", "zip", "docx", "pdf", "image", "dicom", "media"}
+HANDLED = {"eml", "mbox", "csv", "xlsx", "ods", "xml", "hl7", "text", "json", "jsonl", "zip", "docx", "pdf", "image", "dicom", "media"}
 MEDIA_REASON = "audio/video contains voiceprints (biometric identifier) - never exported"
 NO_WHISPER = ("audio/video contains voiceprints (biometric identifier) - never exported; transcription is "
               "turned on but this install has no Whisper model (rebuild with WITH_WHISPER=1)")
@@ -88,6 +88,14 @@ def classify(path: Path) -> tuple[str, str | None]:
     ext = path.suffix.lower()
     if name in SYSTEM_FILES or name.startswith("._"):
         return "system", "operating-system file, not exported"
+    if ext in (".txt", ".dat", ".msg_hl7", "") or ext not in SUPPORTED and ext not in UNSUPPORTED:
+        try:
+            with open(path, "rb") as fh:
+                from .formats.hl7 import looks_like_hl7
+                if looks_like_hl7(fh.read(16)):
+                    return "hl7", None               # HL7 v2 saved as .txt / .dat / no extension
+        except OSError:
+            pass
     if ext in SUPPORTED:
         return SUPPORTED[ext], None
     if ext in email_.MEDIA_EXT:
@@ -215,6 +223,9 @@ def run_job(job: tuple[str, int]) -> tuple[str, int, str]:
                 tabular.process_ods(src, dst, ctx)
             elif f["kind"] == "xml":
                 xml_.process_xml(src, dst, ctx)
+            elif f["kind"] == "hl7":
+                from .formats import hl7
+                hl7.process_hl7(src, dst, ctx)
             elif f["kind"] == "text":
                 text.process_text(src, dst, ctx)
             elif f["kind"] in ("json", "jsonl"):

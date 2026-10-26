@@ -141,7 +141,7 @@ verification:
 # contain one space ("ABC 123"); "digits" = SSN-shaped; "handle" = usernames.
 labeled_ids:
   - entity: US_SSN
-    labels: ['ssn', 'ss#', 'social security', 'soc\.? ?sec\.?']
+    labels: ['ssn', 'ss#', 'social security', 'soc\.? ?sec\.?', 'national insurance', 'ni number', 'nino', 'sin', 'social insurance', 'national id', 'tax ?id', 'tin', 'itin']
     value: digits
   - entity: MEDICAL_RECORD_NUMBER
     labels: ['mrn', 'mr#', 'med(?:ical)?\.? ?rec(?:ord)?s?', 'chart', 'patient', 'pt\.?', 'hospital', 'emr', 'ehr']
@@ -171,8 +171,23 @@ labeled_ids:
     labels: ['claim', 'case', 'ticket', 'reference', 'ref\.?', 'confirmation', 'conf\.?', 'order', 'tracking', 'employee', 'emp\.?', 'badge', 'student', 'record', 'record locator', 'booking', 'reservation', 'encounter', 'visit', 'accession', 'specimen', 'lab', 'requisition', 'authorization', 'auth\.?', 'prior auth', 'referral', 'episode', 'admission', 'account holder', 'enrollment', 'application', 'contract', 'id']
     value: id
   - entity: OTHER_ID
-    labels: ['user ?name', 'user ?id', 'login', 'log-in', 'portal (?:user|login|id|username)', 'handle', 'screen ?name', 'twitter', 'instagram', 'tiktok', 'facebook', 'linkedin', 'skype', 'slack (?:handle|user)', 'discord']
+    labels: ['user[ _]?name', 'user[ _]?id', 'login', 'alias', 'gamertag', 'nickname', 'log-in', 'portal (?:user|login|id|username)', 'handle', 'screen ?name', 'twitter', 'instagram', 'tiktok', 'facebook', 'linkedin', 'skype', 'slack (?:handle|user)', 'discord']
     value: handle
+  - entity: STREET_ADDRESS
+    labels: ['address', 'street address', 'home address', 'mailing address', 'delivery address', 'billing address', 'shipping address', 'return address', 'residence', 'consignor address', 'consignee address']
+    value: address
+  - entity: OTHER_ID
+    labels: ['(?:created|approved|updated|modified|submitted|uploaded|released|reviewed|entered|requested|authored|changed|deleted|logged) by', 'created[ _]by', 'updated[ _]by', 'modified[ _]by']
+    value: handle
+  - entity: PHONE_NUMBER
+    labels: ['phone', 'tel', 'telephone', 'mobile', 'cell', 'cellphone', 'contact number', 'phone ?number', 'fax', 'whatsapp', 'consignee phone']
+    value: phone
+  - entity: LOCATION
+    labels: ['city', 'town', 'location', 'affected area', 'city of birth', 'place of birth', 'birth ?place', 'hometown', 'home town', 'village', 'municipality', 'suburb']
+    value: place
+  - entity: PERSON
+    labels: ['first ?name', 'last ?name', 'given ?name', 'family ?name', 'full ?name', 'legal ?name', 'surname', 'forename', 'middle ?name', 'maiden ?name', 'patient ?name', 'patient', 'customer ?name', 'customer', 'client ?name', 'client', 'applicant', 'student ?name', 'student', 'employee ?name', 'recipient', 'sender', 'guardian', 'beneficiary ?name', 'subject ?name', 'resident', 'caregiver', 'next of kin', 'emergency contact', '(?<!device )(?<!product )(?<!company )(?<!file )(?<!brand )(?<!drug )(?<!item )(?<!business )(?<!facility )(?<!hospital )(?<!clinic )(?<!plan )(?<!project )(?<!account )(?<!host )(?<!user )(?<!test )(?<!field )(?<!vendor )(?<!store )(?<!street )(?<!city )(?<!site )(?<!study )name']
+    value: name
 
 # Context-risk checks: scrubbed text that could still point to one person goes
 # to human review. Built-in lists (src/scrubber/detect/context_risk.py) cover

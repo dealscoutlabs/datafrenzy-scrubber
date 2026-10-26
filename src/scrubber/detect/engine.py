@@ -216,7 +216,8 @@ class Detector:
         artifacts = [(m.start(), m.end()) for m in ARTIFACT_RE.finditer(text)]
         found = [f for f in found if not _overlaps_artifact(text, f, artifacts)
                  and not (f.source == "SpacyRecognizer" and f.etype in NAMEISH and not self._meaningful(f.text))
-                 and not (f.source == "SpacyRecognizer" and f.etype in NAMEISH and _beside_dose(text, f))]
+                 and not (f.source == "SpacyRecognizer" and f.etype in NAMEISH and _beside_dose(text, f))
+                 and not (f.source in ("SpacyRecognizer", "caps_row") and f.etype in NAMEISH and _eponym(text, f))]
         found = _resolve(found)
         for f in found:
             f.start += offset
@@ -368,3 +369,17 @@ def _beside_dose(text: str, f) -> bool:
     left = text[max(0, f.start - 16):f.start].split("\n")[-1]
     right = text[f.end:f.end + 20].split("\n")[0]
     return bool(DOSE.search(left) or DOSE.search(right) or DOSE.search(text[f.start:f.end]))
+
+
+EPONYM = re.compile(r"^(?:'s|’s|s')?[ \t-]+(?:disease|syndrome|sign|test|maneuver|manoeuvre|palsy|phenomenon|law|"
+                    r"reflex|tumou?r|lymphoma|sarcoma|anemia|anaemia|operation|procedure|fracture|ulcer|node|"
+                    r"cells?|cyst|triad|criteria|classification|scale|score|stage|staging|technique|repair|"
+                    r"incision|catheter|tube|solution|needle|forceps|retractor|position|space|canal|duct|gland|"
+                    r"membrane|body|bodies|ganglion|contracture|deformity|neuroma|neuralgia|encephalopathy|"
+                    r"dementia|ataxia|chorea|thyroiditis|dystrophy|arthritis|aneurysm|hernia|block|"
+                    r"agar|stain|equation|formula|curve|effect|virus|bacillus)\b", re.I)
+
+
+def _eponym(text: str, f) -> bool:
+    """"Parkinson's disease", "Reiter's syndrome", "Foley catheter": a name that is part of a medical term."""
+    return bool(EPONYM.match(text[f.end:f.end + 40]))

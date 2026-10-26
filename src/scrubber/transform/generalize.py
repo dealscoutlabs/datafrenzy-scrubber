@@ -17,10 +17,10 @@ HOLIDAYS = (r"christmas(?:\s+(?:eve|day))?|xmas|new\s+year'?s(?:\s+(?:eve|day))?
 
 MONTH_RE = re.compile(rf"\b(?:{MONTHS})\b\.?", re.IGNORECASE)
 HOLIDAY_RE = re.compile(rf"\b(?:{HOLIDAYS})\b", re.IGNORECASE)
-YEAR4_RE = re.compile(r"(?<!\d)(1[6-9]\d\d|20\d\d)(?!\d)")
+YEAR4_RE = re.compile(r"(?<!\d)(1[6-9]\d\d|20\d\d|21\d\d)(?!\d)")   # 21xx: date-shifted research data
 NUMERIC_DATE_RE = re.compile(r"(?<!\d)(\d{1,4})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?(?!\d)")
 APOS_YEAR_RE = re.compile(r"'(\d\d)\b")
-COMPACT_DATE_RE = re.compile(r"(?<!\d)((?:19|20)\d\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?:T?\d{4,6}Z?)?(?!\d)")
+COMPACT_DATE_RE = re.compile(r"(?<!\d)((?:19|20|21)\d\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?:T?\d{4,6}Z?)?(?!\d)")
 
 
 class Generalizer:

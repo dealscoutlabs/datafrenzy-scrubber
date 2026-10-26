@@ -42,6 +42,7 @@ STATE_ABBR = "|".join(US_STATES)
 
 STREET_SUFFIXES = (
     "Parade|Frontage Road|Frontage Rd|Frontage|Esplanade|Promenade|Quay|Close|Wynd|Rise|Mews|Chase|Grange|"
+    "Subway|Entrance|Nagar|Marg|Chowk|Zila|Colony|Gali|Galli|Ganj|Bazar|Bagh|Puram|"
     "Alley|Aly|Annex|Arcade|Avenue|Ave|Bayou|Beach|Bend|Bluff|Bluffs|Bottom|Boulevard|Blvd|Branch|Bridge|Brook|"
     "Brooks|Burg|Burgs|Bypass|Camp|Canyon|Cape|Causeway|Center|Centers|Circle|Cir|Circles|Cliff|Cliffs|Club|"
     "Common|Commons|Corner|Corners|Course|Court|Ct|Courts|Cove|Cv|Coves|Creek|Crescent|Crest|Crossing|Xing|"
@@ -60,8 +61,8 @@ STREET_SUFFIXES = (
 SECONDARY = r"(?:Apt|Apartment|Suite|Ste|Unit|Fl|Floor|Rm|Room|Bldg|Building|Lot|Space|Trlr|Dept|#)\.?\s*#?\s*[A-Za-z0-9-]{1,8}"
 
 STREET_ADDRESS = (
-    rf"(?<![\w-])\d{{1,6}}[A-Za-z]?\s+(?:(?:N|S|E|W|NE|NW|SE|SW|North|South|East|West)\.?\s+)?"
-    rf"(?:(?:[A-Z0-9][A-Za-z0-9'.-]*|of|the|de|la|del)\s+){{0,4}}(?:{STREET_SUFFIXES})\b\.?"
+    rf"(?<![\w/-])\d{{1,6}}(?:/\d{{1,5}})?[A-Za-z]?\s+(?:(?:N|S|E|W|NE|NW|SE|SW|North|South|East|West)\.?\s+)?"
+    rf"(?:(?:[A-Z0-9][A-Za-z0-9'.-]*|of|the|de|la|del)\s+){{0,4}}(?:{STREET_SUFFIXES}|(?i:{STREET_SUFFIXES}))\b\.?"
     rf"(?:\s+(?:N|S|E|W|NE|NW|SE|SW)\b\.?)?(?:,?\s+{SECONDARY})?"
 )
 PO_BOX = r"(?i:\bP\.?\s?O\.?\s*Box|\bPost\s+Office\s+Box)\s+\d{1,7}"
@@ -73,7 +74,9 @@ CITY_STATE_ZIP = (
 )
 # Town names: "Port Kevinberg", "Lake Charles", "North Platte"; "Clarksville" after "in/at/visiting".
 PLACE_PREFIX = (r"\b(?:New|North|South|East|West|Port|Lake|Fort|Ft\.|Mount|Mt\.|Saint|St\.|San|Santa|Los|Las|"
-                r"Glen|Grand|Little|Big|Palm|Cape|Point|Upper|Lower)[ \t]+[A-Z][a-z]{2,}"
+                r"Glen|Grand|Little|Big|Palm|Cape|Point|Upper|Lower)[ \t]+"
+                r"(?!(?:Arm|Arms|Leg|Legs|Extremity|Extremities|Lobe|Lip|Limb|Back|Abdomen|Body|Jaw|Eyelid|Chest|"
+                r"Quadrant|Respiratory|Endoscopy|Airway|Teeth|Tooth|Molar|Incisor|Spine|Torso|Thigh)\b)[A-Z][a-z]{2,}"
                 r"(?:[ \t]+(?:City|Springs|Falls|Beach|Heights|Hills|Park|Valley|Village|Junction|Center))?\b")
 PLACE_SUFFIX = (r"(?i:\b(?:in|at|from|to|near|visiting|outside|around|toward|towards|via|lives|living|moved|"
                 r"based|located|resident|residing)[ \t]+(?:in[ \t]+|of[ \t]+)?)"
@@ -91,20 +94,59 @@ FIRM_SUFFIX = (r"\b(?:[A-Z][\w'&.-]*[ \t]+){1,4}(?:LLC|L\.L\.C\.|Inc|Incorporate
                r"P\.C\.|Corp|Corporation|Co|Company|Group|Associates|Partners|Brothers|Bros)\b\.?")
 HYPHEN_SURNAMES = r"\b[A-Z][a-z]+-[A-Z][a-z]+\b"
 
-LABELED_ZIP = r"(?i:\b(?:zip|zip ?code|postal(?: ?code)?|post ?code)\b)\s*[:#]?\s*(?P<value>\d{5}(?:-\d{4})?)(?!\d)"
+LABELED_ZIP = (r"(?i:\b(?:zip|zip ?code|postal(?: ?code)?|post ?code|pin ?code)\b)\s*(?:is\s+)?\**\s*[:#]?\s*\**\s*"
+               r"(?P<value>\d{5}(?:-\d{4})?|\d{4,6}|[A-Z]{1,2}\d[A-Z\d]? ?\d[A-Z]{2}|[A-Z]\d[A-Z] ?\d[A-Z]\d)"
+               r"(?![\dA-Za-z])")
+# Canadian postal code: "K8P 7V8"
+CA_POSTCODE = r"(?<![A-Za-z0-9])[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z] \d[ABCEGHJ-NPRSTV-Z]\d(?![A-Za-z0-9])"
+# UK-style postcode, distinctive enough on its own: "LN0Y 4PT", "SE33 2XX"
+UK_POSTCODE = r"(?<![A-Za-z0-9])[A-Z]{1,2}\d[A-Z\d]? \d[A-Z]{2}(?![A-Za-z0-9])"
+# GPS coordinates written in text: "56.553299, -26.524318", "23.7698 N, -75.4416 E", "Latitude: 20.8, Longitude: 146.4"
+COORDINATES = (r"(?<![\d.])-?\d{1,3}\.\d{4,}\s*°?\s*[NSns]?\s*(?:,\s*|\s+)-?\d{1,3}\.\d{4,}\s*°?\s*[EWew]?(?!\d|\.\d)|"
+               r"(?i:lat(?:itude)?)\s*[:=]?\s*-?\d{1,3}\.\d{2,}\s*°?\s*[NSns]?\s*[,;]?\s*(?i:lon(?:g(?:itude)?)?|lng)\s*[:=]?\s*-?\d{1,3}\.\d{2,}")
+# card-like groups of four, whether or not the check digit is valid: "4081 4502 8872 0843", "3768-7258-8504-048"
+CARD_GROUPS = r"(?<![\d-])\d{4}([ -])\d{4}\1\d{4}\1\d{1,4}(?![\d])|(?<![\d-])\d{4}-\d{4}-\d{4}-(?![\d])"
+# 9-19 digits in a row are an identifier (routing number, IMEI, account, card), not an amount
+VERY_LONG_DIGITS = r"(?<![\w.,/-])\d{9,19}(?![\w/-]|[.,]\d)"
+# UK National Insurance number, with or without spaces: "ZZ 57 31 99 T", "ZZ646920T"
+NINO = r"(?<![A-Za-z0-9])[A-Z]{2} ?\d{2} ?\d{2} ?\d{2} ?[A-DT](?![A-Za-z0-9])"
+# nine digits grouped 3-3-3 (SIN-style national IDs): "257 340 877"
+DIGITS_333 = r"(?<![\d -])\d{3} \d{3} \d{3}(?![\d]| \d)"
+# digit groups with two dashes and 8+ digits: plates and IDs ("02-408192-57"), not dates
+DASHED_ID = r"(?<![\w-])\d{2,4}-\d{4,8}-\d{2,4}(?![\w-])"
+# phone numbers outside North America: "+915229145899", "03-8585-3411", "0414.170.941", "028 9018 0925"
+INTL_PHONE2 = (r"(?<![\w+])\+\d{9,15}(?![\w])|"
+               r"(?<![\w])0\d{1,4}[ .-]\d{3,4}[ .-]\d{3,4}(?![\w]|[.-]\d)")
+# lowercase usernames with digits: "hayes96", "katherine53" (everyday words with a number are excluded)
+USERNAME_DIGITS = (r"(?<![\w@./-])(?!(?:covid|base|python|windows|office|iphone|galaxy|pixel|android|html|java|mysql|"
+                   r"oauth|ubuntu|debian|centos|redhat|serial|model|version|class|level|room|floor|unit|suite|ward|"
+                   r"week|month|year|item|step|phase|stage|grade|type|page|line|table|figure|section|chapter|part|"
+                   r"batch|test|sample|tier|zone|route|gate|dock|vitamin|omega|insulin|"
+                   r"note|notes|file|files|image|images|scan|scans|photo|photos|report|reports|record|records|chart|"
+                   r"form|forms|letter|invoice|export|data|sheet|copy|draft|final|backup|attachment|picture|video|"
+                   r"audio|clip|slide|book|volume|issue|case|study|trial|visit|dose|cycle|patient|subject|site|"
+                   r"account|order|ticket|frame|layer|track|channel|camera|device|sensor|node|server|host|player)\d)"
+                   r"[a-z]{4,}\d{1,3}(?![\w@.-])")
+# usernames shaped like "tw_brian740", "emma_1941"
+USERNAME_SHAPE = r"(?<![\w@.])[a-z]{2,}_[a-z]*\d{2,}(?![\w@])"
+# short coded IDs: "C88614", "EMP248439", "Vh-41273"
+SHORT_CODED_ID = r"(?<![\w-])(?:[A-Z]{1,3}-?\d{5,}|[A-Z][a-z]-\d{4,})(?![\w-])"
+# international numbers with the area code in brackets: "(02).6295.0291", "(029) 2018 0232", "(08)-9852-4154"
+INTL_PHONE = r"(?<![\w(])\(\+?\d{2,4}\)[\s.-]?\d{3,4}[\s.-]?\d{3,4}(?![\w])"
 STATE_ZIP = rf"\b(?:{STATE_ABBR})\s+(?P<value>\d{{5}}(?:-\d{{4}})?)(?![\d-])"
 
 WEEKDAY = r"(?:mon|tue|tues|wed|wednes|thu|thur|thurs|fri|sat|satur|sun)(?:day)?\.?"
 DATE_PATTERNS = [
-    rf"(?i)\b(?:{WEEKDAY},?\s+)?(?:{MONTHS})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?(?:,?\s+(?:(?:19|20)\d\d|'\d\d))?(?!\d)",
-    rf"(?i)\b(?:{WEEKDAY},?\s+)?\d{{1,2}}(?:st|nd|rd|th)?(?:\s+of)?\s+(?:{MONTHS})\.?,?(?:\s+(?:19|20)\d\d)?\b",
-    rf"(?i)\b(?:{MONTHS})\.?,?\s+(?:(?:19|20)\d\d|'\d\d)\b",
-    r"(?<![\d/.-])(?:0?[1-9]|1[0-2])[/.-](?:0?[1-9]|[12]\d|3[01])[/.-](?:(?:19|20)\d\d|\d\d)(?![\d/-]|\.\d)",
-    r"(?<![\d/.-])(?:0?[1-9]|[12]\d|3[01])[/.-](?:0?[1-9]|1[0-2])[/.-](?:19|20)\d\d(?![\d/-]|\.\d)",
-    r"(?<![\d/.-])(?:19|20)\d\d[/.-](?:0?[1-9]|1[0-2])[/.-](?:0?[1-9]|[12]\d|3[01])"
+    rf"(?i)\b(?:{WEEKDAY},?\s+)?(?:{MONTHS})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?(?:,?\s+(?:(?:19|20|21)\d\d|'\d\d))?(?!\d)",
+    rf"(?i)\b(?:{WEEKDAY},?\s+)?\d{{1,2}}(?:st|nd|rd|th)?(?:\s+of)?\s+(?:{MONTHS})\.?,?(?:\s+(?:19|20|21)\d\d)?\b",
+    rf"(?i)\b(?:{MONTHS})\.?,?\s+(?:(?:19|20|21)\d\d|'\d\d)\b",
+    # the same separator both times: "12.5-25" is a dose range, not a date
+    r"(?<![\d/.-])(?:0?[1-9]|1[0-2])([/.-])(?:0?[1-9]|[12]\d|3[01])\1(?:(?:19|20|21)\d\d|\d\d)(?![\d/-]|\.\d)",
+    r"(?<![\d/.-])(?:0?[1-9]|[12]\d|3[01])([/.-])(?:0?[1-9]|1[0-2])\1(?:19|20|21)\d\d(?![\d/-]|\.\d)",
+    r"(?<![\d/.-])(?:19|20|21)\d\d([/.-])(?:0?[1-9]|1[0-2])\1(?:0?[1-9]|[12]\d|3[01])"
     r"(?:[T ][0-2]\d:[0-5]\d(?::[0-5]\d(?:\.\d+)?)?\s*(?:Z|[+-]\d\d:?\d\d)?)?(?![\d/-]|\.\d)",
-    r"(?<![\d/.-])(?:0?[1-9]|1[0-2])/(?:19|20)\d\d(?![\d/-]|\.\d)",
-    rf"(?i)\b(?:{HOLIDAYS})(?:,?\s+(?:19|20)\d\d)?\b",
+    r"(?<![\d/.-])(?:0?[1-9]|1[0-2])/(?:19|20|21)\d\d(?![\d/-]|\.\d)",
+    rf"(?i)\b(?:{HOLIDAYS})(?:,?\s+(?:19|20|21)\d\d)?\b",
 ]
 # Month/day with no year is only a date after a date-ish word ("seen on 3/14").
 DATE_NO_YEAR = (r"(?i)\b(?:on|since|from|until|till|thru|through|by|dated|date|dos|dob|due|seen|admitted|"
@@ -181,6 +223,7 @@ current facility facilities name names raw identified de-identified deidentified
 data dataset export exports sheet sheets tab tabs table tables contains phi pii raw original copy final draft
 allergies allergy medications medication problems problem procedures results encounters encounter immunizations vital signs vitals careplans plan treatment functional status social history assessment reports report section sections summary
 extended release delayed oral tablet tablets capsule capsules injection injectable solution suspension syringe prefilled inhaler inhalation metered actuat dose doses chewable topical cream ointment patch transdermal nasal spray vial pen auto-injector cartridge drops ophthalmic otic sublingual buccal vaginal rectal suppository powder granules lozenge gel lotion foam elixir syrup kit pack mg ml mcg hr pf preservative free sodium hydrochloride succinate tartrate acetate sulfate phosphate citrate maleate besylate
+recommendations recommendation guideline guidelines goal goals therapy criteria interpretation comment comments reference range enema suppository suppositiry kit packet blister diskus formulary non-formulary repletion fluid fluids miu iu meq mmol umol ng pg dl ul units metacarpal metatarsal phalanx phalanges carpal tarsal humerus femur tibia fibula ulna radius sternum clavicle scapula patella sacrum coccyx vertebra lumbar thoracic cervical normal abnormal manual automated verified repeat repeated confirmed hemolyzed lipemic icteric clotted insufficient quantity positive negative pending final preliminary corrected cancelled canceled duplicate arm arms leg legs forearm upper lower left right proximal distal lateral medial anterior posterior basilic cephalic femoral jugular subclavian radial brachial antecubital hand foot chest abdomen abd thigh knee ankle wrist shoulder hip groin neck scalp trunk back flank pelvis gu gi ent skilled nursing facility rehab hospice transfer emergency room walk-in referral home
 child children contrib contribution contributions employer employers employee employees payroll unemployment withholding wage wages tax taxes reconciliation quarterly monthly
 nurse nurses rn lpn lvn cna np aprn pa md therapist therapists counselor counselors clinician clinicians physician physicians doctor doctors provider providers aide aides technician tech psychiatrist psychologist pharmacist chaplain dietitian dietician social worker workers director supervisor administrator charge attending resident resident
 """.split())

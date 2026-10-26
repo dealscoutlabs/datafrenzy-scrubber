@@ -34,11 +34,37 @@ def is_terminology(text: str) -> bool:
 
 
 CODE_HEADER = re.compile(r"(^|[ _])code$|code$")
+# columns of codes: kept as they are
+CODE_COLUMN = re.compile(r"(^| )(icd|icd ?9|icd ?10|icd code|icd ?9 ?code|icd ?10 ?code|ndc|cpt|hcpcs|hcpcs ?cd|loinc|"
+                         r"snomed|rxnorm|rxcui|drg|drg ?code|cvx|itemid|item ?id|code|cd|.+ code|.+ cd|.+_cd)$|"
+                         r"^(icd_code|drg_code|hcpcs_cd|formulary_drug_cd|product_code|ab_itemid|test_itemid|org_itemid|"
+                         r"spec_itemid|loinc_code)$")
+# clinical vocabulary columns: what was given, measured or ordered, not who
+CLINICAL_HEADER = re.compile(
+    r"(^| )(drugs?|medications?|meds?|med name|drug name|generic name|brand name|product|product description|"
+    r"product description other|ingredients?|formulary|test|test name|lab test|labels?|abbreviation|title|"
+    r"long title|short title|short description|long description|services?|curr service|prev service|"
+    r"care ?units?|first care ?unit|last care ?unit|unit ?name|uom|value ?uom|units?|dose unit|dose unit rx|"
+    r"form unit disp|dose given unit|dose due unit|product unit|infusion rate unit|amount ?uom|rate ?uom|"
+    r"routes?|frequency|freq|sites?|body site|specimen type|spec type desc|status|status ?description|"
+    r"statusdescription|order status|order type|order subtype|event type|interpretation|flag|priority|"
+    r"organism|antibiotic|ab name|dilution|dilution comparison|race|ethnicity|marital status|language|"
+    r"religion|gender|sex|admission type|discharge disposition|admit source|category|location category|"
+    r"locationcategory|admission location|discharge location|"
+    r"ordercategoryname|ordercategorydescription|secondaryordercategoryname|ordercomponenttypedescription|"
+    r"dispensation|expiration unit|duration interval|fill quantity|one hr max|lockout interval|"
+    r"infusion type|sliding scale|insurance|valueuom|amountuom|rateuom|totalamountuom|originalamountuom|"
+    r"patientweight|param type|linksto|reason for no barcode|infusion rate adjustment|"
+    r"complete dose not given|will remainder of dose be given|field name|field value|result name|"
+    r"result value|result ?uom|vital|vital sign|procedure|procedures?|diagnosis|problem|allergen|reaction)$")
+
 # what a question/answer label may turn a value into: clearly personal types only
 LABELLED_TYPES = {"address", "phone", "fax", "email", "ssn", "person_name", "mrn", "health_plan", "account",
                   "license", "zip", "dob", "url", "ip", "city", "vehicle", "device", "other_id"}
 VALUE_HEADER = re.compile(r"^(value|result|answer|response|value text|value string|result value|observation value)$")
-NOT_A_CODE = re.compile(r"zip|postal|post code|area code|country code|state code|phone|promo|discount|access|pass")
+NOT_A_CODE = re.compile(r"zip|postal|post code|area code|country code|state code|phone|promo|discount|access|pass|"
+                        r"employee|member|patient|account|customer|user|client|staff|provider|subscriber|policy|"
+                        r"group|auth|verification|confirmation|security|pin|referral|voucher|coupon|login|badge")
 TERM_HEADER = re.compile(r"(^| )(description|desc|display|display name|code description|code display)$|description$")
 RESIDUAL_CHARS = 50_000
 EMAIL_IN_CELL = re.compile(r"[\w.+'-]+@[\w-]+(?:\.[\w-]+)+")
@@ -57,6 +83,9 @@ class ColumnPlan:
         self.actions: list[str] = []
         norms = [normalize_header(h) for h in headers]
         has_code = any(CODE_HEADER.search(n) and not NOT_A_CODE.search(n) for n in norms)
+        # a microbiology table: "org_name" there is the organism grown, not a business
+        micro = any(n in ("ab name", "spec type desc", "isolate num", "micro specimen id", "antibiotic", "specimen")
+                    for n in norms)
         ctx.kept.update(str(h).strip() for h in headers if isinstance(h, str) and h.strip())
         # question/answer rows: the description says what the value is ("Address" | "550 Hand Parade")
         self.value_cols = {i for i, n in enumerate(norms) if VALUE_HEADER.search(n)}
@@ -68,6 +97,21 @@ class ColumnPlan:
                 self.actions.append("keep")
                 continue
             ctype = classify_header(header)
+            col_all = None
+            if CODE_COLUMN.search(norms[i]) and not NOT_A_CODE.search(norms[i]) and ctype not in ("zip", "phone"):
+                ctype = "code"                     # ICD, NDC, CPT, LOINC ... codes are not identifiers
+            elif (CLINICAL_HEADER.search(norms[i]) or (norms[i] in ("org name", "organism name") and micro)) \
+                    and ctype not in ("person_name", "dob", "ssn", "mrn", "email"):
+                ctype = "terminology"              # drug, unit, route, test, label, care unit ...
+            if ctype in ("code", "terminology"):
+                self.types.append(ctype)
+                self.actions.append("keep")
+                continue
+            if ctype in ("date", "dob"):
+                # "dose_due", "expiration_value", "admission_location": the header says date, the values don't
+                col_all = [row[i] if i < len(row) else None for row in (all_rows or samples)]
+                if not _mostly_dates(col_all, ctx):
+                    ctype = None
             if ctype == "category":
                 col = [row[i] if i < len(row) else None for row in (all_rows or samples)]
                 ctype = "numeric" if is_category(col) else None  # a short list of repeated labels is kept as is
@@ -76,6 +120,11 @@ class ColumnPlan:
             if ctype is None:
                 col = [row[i] if i < len(row) else None for row in samples]
                 ctype = classify_by_content(col, ctx.scrubber.detector, float(tab["content_match_ratio"])) or "unknown"
+                if ctype == "unknown":
+                    col_all = col_all or [row[i] if i < len(row) else None for row in (all_rows or samples)]
+                    if _safe_category(col_all, ctx):
+                        ctype = "numeric"          # a few labels repeated down the column, none a name or ID
+                        ctx.kept.update(str(v).strip() for v in col_all if isinstance(v, str))
             action = "keep" if ctype == "numeric" else rules.get(ctype, rules["unknown"])
             action = overrides.get(str(header), action)
             self.types.append(ctype)
@@ -90,6 +139,38 @@ class ColumnPlan:
     @property
     def removed(self) -> set[int]:
         return {i for i, a in enumerate(self.actions) if a == "remove"}
+
+
+def _mostly_dates(values: list, ctx: Context) -> bool:
+    vals = [v for v in values if v is not None and str(v).strip()][:500]
+    if not vals:
+        return True
+    gen = ctx.gen
+    hits = sum(1 for v in vals if isinstance(v, (dt.date, dt.datetime)) or gen.has_date_element(str(v))
+               or re.fullmatch(r"\s*(?:18|19|20|21)\d\d\s*", str(v)))
+    return hits >= 0.5 * len(vals)
+
+
+def _safe_category(values: list, ctx: Context) -> bool:
+    """Few distinct values, each repeated, and no value is a name, contact detail or ID by the
+    name lists, harvested names or ID patterns (the language model's guesses don't count here)."""
+    vals = [str(v).strip() for v in values if v is not None and str(v).strip()]
+    distinct = list(dict.fromkeys(vals))
+    if not vals or len(distinct) > 60 or len(vals) < 5 * len(distinct):
+        return False
+    if any(re.search(r"\d{5}|@", v) for v in distinct):
+        return False
+    for v, findings in zip(distinct, ctx.scrubber.detector.detect_many(distinct)):
+        for f in findings:
+            if f.source in ("SpacyRecognizer",) or f.etype in ("DATE", "AGE_OVER_89"):
+                continue                       # the model's guesses and generalized dates don't disqualify
+            if f.source == "caps_row" and f.etype != "PERSON":
+                continue                       # "SKILLED NURSING FACILITY" is a category, not a business
+            if f.etype in ("LOCATION", "ORGANIZATION") and f.source in ("city_state", "town_prefix", "town_suffix",
+                                                                       "firm_suffix", "city_code_zip"):
+                continue
+            return False
+    return True
 
 
 class CellRewriter:
@@ -129,6 +210,12 @@ class CellRewriter:
             v = str(int(value)) if isinstance(value, (int, float)) else str(value)
             return gen.zip_text(v)
         if ctype in ("dob", "date"):
+            text = str(value)
+            if not isinstance(value, (dt.date, dt.datetime)) and (
+                    not (gen.has_date_element(text) or re.search(r"(?<!\d)(?:18|19|20|21)\d\d(?!\d)", text))
+                    or (not re.search(r"(?<!\d)(?:18|19|20|21)\d\d(?!\d)|/|[A-Za-z]{3}", text))):
+                # no year, no slash, no month name: "1-2", "1.2" in a dose_due column are amounts
+                return None      # not a date after all ("0" in a dose_due column): read as text
             out = gen.date_value(value, birth=(ctype == "dob"))
             if isinstance(value, (dt.date, dt.datetime)) or gen.has_date_element(str(value)):
                 tally.counts["DATE_BIRTH" if ctype == "dob" else "DATE"] += 1
@@ -153,7 +240,7 @@ class CellRewriter:
                 if value is None or (isinstance(value, str) and not value.strip()):
                     continue
                 ctype, action = self.plan.get(i)
-                if ctype in ("terminology", "state", "country") and action != "drop":
+                if ctype in ("terminology", "code", "state", "country") and action != "drop":
                     self.ctx.kept.add(str(value).strip())   # kept by rule: not a leftover for the double-check
                     continue
                 if action == "keep":
@@ -219,6 +306,11 @@ def scrub_header_row(headers: list, ctx: Context) -> list:
     """Headers are kept unless they are not ordinary column names and contain an identifier."""
     out = []
     for h in headers:
+        n = normalize_header(h) if isinstance(h, str) else ""
+        if isinstance(h, str) and (re.fullmatch(r"\s*[a-z0-9_.]+\s*|\s*[A-Z0-9_.]+\s*", h)
+                                   or CODE_COLUMN.search(n) or CLINICAL_HEADER.search(n) or TERM_HEADER.search(n)):
+            out.append(h)        # a database-style column name ("valueuom", "ICD_CODE"), not a person
+            continue
         if isinstance(h, str) and h.strip() and classify_header(h) is None:
             res = ctx.scrubber.scrub(h, ctx.tally)
             out.append(res.text)

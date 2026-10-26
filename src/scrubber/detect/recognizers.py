@@ -88,14 +88,30 @@ def labeled_id_recognizer(entity: str, labels: list[str], value_kind: str, idx: 
     label = "|".join(f"(?:{lab})" for lab in labels)
     idword = r"(?:[\s.]*(?:(?:id|identifier|no|num|number|nbr|code)\b|#))*\.?"
     if value_kind == "digits":
-        value = r"\d{3}[- ]?\d{2}[- ]?\d{4}|(?:x{3}|\*{3})[- ]?(?:x{2}|\*{2})[- ]?\d{4}"
-        sep = r"\s*(?:is\s+|of\s+|=\s*|:\s*|#\s*|-\s*)?"
+        # US 3-2-4, other 9-digit groupings (Canadian SIN 3-3-3), UK National Insurance (AB 12 34 56 C)
+        value = (r"\d{3}[- ]?\d{2}[- ]?\d{4}|\d{3}[- ]\d{3}[- ]\d{3}|[A-Z]{2} ?\d{2} ?\d{2} ?\d{2} ?[A-D]?|"
+                 r"(?:x{3}|\*{3})[- ]?(?:x{2}|\*{2})[- ]?\d{4}")
+        sep = r"\s*\**\s*(?:is\s+|of\s+|=\s*|:\s*|#\s*|-\s*)?\**\s*"
+    elif value_kind == "phone":
+        value = r"\+?\(?\d[\d ().-]{5,20}\d(?:[ \t]*(?:x|ext\.?)[ \t]*\d{1,6})?"
+        sep = r"[ \t]*\**[ \t]*(?:is[ \t]+|=[ \t]*|:[ \t]*|#[ \t]*|-[ \t]*)\**[ \t]*[\"']?"
+    elif value_kind in ("place", "name"):
+        # a form field: "City of Birth: Jamesview", "First Name: Wazir", "**Customer:** Kelly"
+        value = r"[A-Z][A-Za-z'.-]+(?:[ -](?:[A-Z][A-Za-z'.-]+|de|del|la|van|von|da))" + ("{0,3}" if value_kind == "name" else "{0,2}")
+        sep = r"[ \t]*\**[ \t]*[:=][ \t]*\**[ \t]*[\"']?"   # same line only ("Patient:\nPhone:" is two fields)
+        idword = r""
     elif value_kind == "plate":
         value = r"(?=[A-Za-z0-9 -]{0,9}\d)[A-Za-z0-9]{2,8}(?:[ -][A-Za-z0-9]{2,4})?"
         sep = r"\s*(?:is\s+|of\s+|=\s*|:\s*|#\s*|-\s*)?"
+    elif value_kind == "address":
+        # "Address: 76 Matthew lodge, Studio 06l": starts with a number, runs to the end of the field
+        value = r"\d[\w/-]*,?[ \t]+[A-Za-z][^\n*|;]{2,60}?(?=[ \t]*(?:\*\*|\n|;|\||[ \t]-[ \t]|$|\.[ \t]|,[ \t]+[A-Z][a-z]+:))"
+        sep = r"[ \t]*\**[ \t]*(?:is[ \t]+|=[ \t]*|:[ \t]*)\**[ \t]*[\"']?"
     elif value_kind == "handle":
         value = r"@?[A-Za-z0-9][A-Za-z0-9._-]{2,40}(?<![.-])"
-        sep = r"\s*(?:(?:is|was)\s+|[:=#]\s*)(?=\S)"
+        # "created by hayes96": a "... by" label needs no colon
+        by = r"|(?<=by)\s+|(?<=to)\s+" if any(lab.rstrip(")'").endswith(("by", "to")) for lab in labels) else ""
+        sep = rf"\s*[\"']?\s*\**\s*(?:(?:is|was)\s+|[:=#>]\s*{by})\**\s*[\"']?(?=\S)"
     else:
         value = r"(?=[A-Za-z0-9-]*\d)[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){3,30}"
         sep = r"\s*(?:is\s+|of\s+|=\s*|:\s*|#\s*|-\s*)?"
@@ -268,6 +284,14 @@ class CapsRowRecognizer(EntityRecognizer):
         out = []
         for m in self.RUN.finditer(text):
             words = m.group(0).split()
+            # a word ending a sentence ("NORMAL.  MANUAL.") ends the run: only initials keep a period
+            cut = next((k for k, w in enumerate(words[:-1]) if w.endswith(".") and len(w.strip(".")) > 1), None)
+            end = m.end()
+            if cut is not None:
+                words = words[:cut + 1]
+                end = m.start() + m.group(0).index(words[-1], len(" ".join(words[:-1]))) + len(words[-1]) - 1
+                if len(words) < 2:
+                    continue
             if all(self.TOKEN.fullmatch(w) for w in words):
                 continue
             if len(words) >= 2 and any(w.strip(".,") in self.ORG_WORDS for w in words):
@@ -276,7 +300,7 @@ class CapsRowRecognizer(EntityRecognizer):
                 etype, score = "PERSON", 0.7
             else:
                 continue
-            out.append(RecognizerResult(etype, m.start(), m.end(), score,
+            out.append(RecognizerResult(etype, m.start(), end, score,
                                         recognition_metadata={"recognizer_name": self.name}))
         return out
 
@@ -323,6 +347,18 @@ def build_custom_recognizers(cfg: dict, first_names, last_names) -> list[EntityR
         RegexRecognizer("town_suffix", "LOCATION", [P.PLACE_SUFFIX], 0.65, group="value"),
         RegexRecognizer("zip_city_state", "ZIP_CODE", [P.CITY_STATE_ZIP], 0.9, group="zip"),
         RegexRecognizer("zip_labeled", "ZIP_CODE", [P.LABELED_ZIP, P.STATE_ZIP], 0.9, group="value"),
+        RegexRecognizer("uk_postcode", "ZIP_CODE", [P.UK_POSTCODE], 0.7),
+        RegexRecognizer("coordinates", "LOCATION", [P.COORDINATES], 0.85),
+        RegexRecognizer("card_groups", "ACCOUNT_NUMBER", [P.CARD_GROUPS], 0.75),
+        RegexRecognizer("very_long_number", "OTHER_ID", [P.VERY_LONG_DIGITS], 0.65),
+        RegexRecognizer("username_shape", "OTHER_ID", [P.USERNAME_SHAPE], 0.6),
+        RegexRecognizer("short_coded_id", "OTHER_ID", [P.SHORT_CODED_ID], 0.6),
+        RegexRecognizer("intl_phone", "PHONE_NUMBER", [P.INTL_PHONE, P.INTL_PHONE2], 0.7),
+        RegexRecognizer("ca_postcode", "ZIP_CODE", [P.CA_POSTCODE], 0.75),
+        RegexRecognizer("nino", "US_SSN", [P.NINO], 0.75),
+        RegexRecognizer("digits_333", "OTHER_ID", [P.DIGITS_333], 0.6),
+        RegexRecognizer("dashed_id", "OTHER_ID", [P.DASHED_ID], 0.6),
+        RegexRecognizer("username_digits", "OTHER_ID", [P.USERNAME_DIGITS], 0.55),
         RegexRecognizer("age_over_89", "AGE_OVER_89", P.AGE_PATTERNS, 0.0, group="value",
                         scorer=lambda v: 0.9 if 90 <= int(v) <= 130 else None),
         RegexRecognizer("dates", "DATE", P.DATE_PATTERNS, 0.85),

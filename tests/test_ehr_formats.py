@@ -91,3 +91,22 @@ def test_drug_names_are_not_people(ctx):
 
 def test_decimals_are_not_ids():
     assert not needs_check("0.42836487523263383") and needs_check("528469349999995")
+
+
+def test_clinical_tables_are_not_damaged(ctx):
+    """Shaped like MIMIC-IV (already de-identified): drugs, units, codes, doses and categories stay."""
+    src = ("subject_id,hadm_id,drug,dose_val_rx,dose_unit_rx,route,ndc,icd_code,long_title,valueuom,"
+           "statusdescription,dose_due,admission_location,careunit\n")
+    rows = [("Fentanyl Citrate", "12.5-25", "mcg", "IV", "00409909422", "Y92230", "Reiter's disease", "K/uL",
+             "FinishedRunning", "1-2", "TRANSFER FROM HOSPITAL", "Med/Surg"),
+            ("Metoprolol Tartrate", "25", "mg", "PO", "00002821501", "G40909", "Parkinson's disease", "mg/dL",
+             "Rewritten", "1.2", "EMERGENCY ROOM", "Neuro Surgical Intensive Care Unit (Neuro SICU)"),
+            ("Insulin - Humalog", "0", "UNIT", "SUBCUT", "00002751001", "Z87891", "Percutaneous balloon valvuloplasty",
+             "mIU/mL", "Paused", "0", "SKILLED NURSING FACILITY", "Med/Surg")] * 4
+    src += "".join(f"{10000032 + i},{22595853 + i}," + ",".join(r) + "\n" for i, r in enumerate(rows))
+    out = _rows(scrub_csv_bytes(src.encode(), ctx, "prescriptions.csv"))
+    for row, original in zip(out, rows):
+        assert tuple(row[k] for k in ("drug", "dose_val_rx", "dose_unit_rx", "route", "ndc", "icd_code", "long_title",
+                                      "valueuom", "statusdescription", "dose_due", "admission_location",
+                                      "careunit")) == original
+        assert row["subject_id"] != "10000032"           # the IDs themselves are still replaced

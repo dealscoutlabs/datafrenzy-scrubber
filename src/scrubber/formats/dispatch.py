@@ -20,6 +20,8 @@ def kind_of(name: str, ctype: str = "") -> str | None:
         return "xlsx"
     if ext in (".xml", ".cda", ".ccd", ".ccda") or ctype in ("application/xml", "text/xml"):
         return "xml"
+    if ext in (".hl7", ".er7", ".hl7v2") or ctype in ("x-application/hl7-v2+er7", "application/hl7-v2"):
+        return "hl7"
     if ext == ".docx":
         return "docx"
     if ext == ".pdf" or ctype == "application/pdf":
@@ -55,6 +57,9 @@ def scrub_bytes(name: str, data: bytes, ctx: Context, item: str, ctype: str = ""
     if kind == "xlsx":
         from .tabular import scrub_xlsx_bytes
         return scrub_xlsx_bytes(data, ctx, item)
+    if kind == "hl7":
+        from .hl7 import scrub_hl7_bytes
+        return scrub_hl7_bytes(data, ctx, item)
     if kind == "xml":
         from .xml_ import scrub_xml_bytes
         return scrub_xml_bytes(data, ctx, item)
