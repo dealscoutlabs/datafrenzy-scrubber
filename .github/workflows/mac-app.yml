@@ -1,6 +1,7 @@
 # Builds the Mac app (.dmg) for Apple Silicon and Intel Macs.
 # Run by hand (Actions tab -> mac-app -> Run workflow) or by pushing a v* tag:
 # Mac build minutes count 10x against a private repo's free allowance.
+# The .dmg files are published to Cloudflare R2 only (no GitHub artifact copies: storage quota).
 name: mac-app
 
 on:
@@ -71,9 +72,3 @@ jobs:
           f=$(ls dist/*.dmg | head -1); name=$(basename "$f"); arch=$(uname -m)
           aws s3 cp "$f" "s3://datafrenzy-downloads/scrubber/$APP_VERSION/$name" --endpoint-url "${{ secrets.R2_ENDPOINT }}"
           aws s3 cp "$f" "s3://datafrenzy-downloads/scrubber/latest/DataFrenzyScrubber-mac-$arch.dmg" --endpoint-url "${{ secrets.R2_ENDPOINT }}"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: DataFrenzyScrubber-mac-${{ runner.arch }}
-          path: dist/*.dmg
-          retention-days: 30

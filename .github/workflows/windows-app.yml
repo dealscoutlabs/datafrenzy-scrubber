@@ -84,17 +84,15 @@ jobs:
           aws s3 cp $f.FullName "s3://datafrenzy-downloads/scrubber/$env:APP_VERSION/$($f.Name)" --endpoint-url "${{ secrets.R2_ENDPOINT }}"
           aws s3 cp $f.FullName "s3://datafrenzy-downloads/scrubber/latest/DataFrenzyScrubber-Setup.exe" --endpoint-url "${{ secrets.R2_ENDPOINT }}"
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: DataFrenzyScrubber-Setup
-          path: packaging/windows/Output/*.exe
-          retention-days: 30
-
+      # Installers live on Cloudflare R2 (step above); GitHub artifact storage on this plan is too
+      # small to keep copies, so only the tiny self-test result is kept, and never fails the build.
       - uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: selftest-result
           path: selftest.json
+          retention-days: 7
 
       - name: Fail the build if any test failed
         if: steps.tests.outcome == 'failure'
