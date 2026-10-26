@@ -67,6 +67,13 @@ details are removed from a copy. Then save the cleaned files wherever you like. 
     <p class="note">{{ status.get('phase', '')|capitalize }}{% if status.get('total') %} · {{ status.done }} of {{ status.total }}{% endif %}. You can keep using your computer.</p>
   {% elif requested %}
     <p><b>Starting…</b></p>
+  {% elif batch.unfinished %}
+    <form method="post" action="/rerun" class="ask">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <p><b>{{ batch.unfinished }} file{{ 's' if batch.unfinished != 1 }} {{ 'were' if batch.unfinished != 1 else 'was' }}n't finished.</b>
+        Scrubbing stopped partway, for example because the app was closed or the computer went to sleep.</p>
+      <button type="submit" {{ 'disabled' if not lock_ok else '' }}>Continue scrubbing</button>
+    </form>
   {% elif not batch.exported and not batch.review %}
     <p style="margin-top:0"><b class="rejected">Nothing could be scrubbed in this batch</b>, so there is nothing to save yet.
     <span class="note">See the reason under each file. Click New batch to clear it and add the files again.</span></p>

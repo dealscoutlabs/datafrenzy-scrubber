@@ -139,8 +139,9 @@ def create_app(paths: Paths | None, config_path: str, desktop=None) -> FastAPI:
         if desktop is not None:
             ok, why = desktop.lock()
             batch = desktop.batch()
+            from ..desktop.app import batch_files
             rows = [{"name": f["rel"], "status": f["status"], "out_rel": f["out_rel"], "reason": f["reason"] or ""}
-                    for f in sorted(r.store.files(), key=lambda f: f["rel"].lower()) if not f["parent"]]
+                    for f in sorted(batch_files(r.store.files()), key=lambda f: f["rel"].lower())]
             pending_fids = [file_id(rv["rel"]) for rv in r.store.reviews("pending")]
             return page("desktop_home.html", request, s=s, status=status, requested=requested, running=running,
                         refresh=running or requested, lock_ok=ok, lock=why, batch=batch, rows=rows[:300],

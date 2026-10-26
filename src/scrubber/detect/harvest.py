@@ -10,6 +10,7 @@ import email.utils
 import io
 import json
 import re
+import unicodedata
 import zipfile
 from email import policy
 from email.parser import BytesHeaderParser
@@ -126,6 +127,21 @@ def harvest_file(kind: str, path: Path) -> list[tuple[str, str, str, str]]:
     return rows
 
 
+def _fhir_name_rows(hn: dict, source: str) -> list:
+    """A FHIR HumanName. Synthea-style names carry digits ("Abram53 Hirthe744"), so they are
+    taken as they are; each part is also listed, since file names and notes use parts alone."""
+    given = [g.strip() for g in hn.get("given", []) if isinstance(g, str) and g.strip()]
+    family = hn["family"].strip()
+    full = " ".join(given + [family])
+    if not family or len(full) > 80:
+        return []
+    norm = normalize_person(full) or full.lower()
+    rows = [(norm, "PERSON", full, source)]
+    rows += [(norm, "PERSON", part, source) for part in given + [family]
+             if len(part) > 2 and (re.search(r"\d", part) or part[:1].isupper())]
+    return rows
+
+
 def _harvest_json(obj, source: str) -> list:
     """Values under person-name keys anywhere in a JSON document (Slack users.json profiles...)."""
     from ..formats.json_ import PERSON_KEYS
@@ -134,6 +150,8 @@ def _harvest_json(obj, source: str) -> list:
     while stack:
         node = stack.pop()
         if isinstance(node, dict):
+            if isinstance(node.get("family"), str) and isinstance(node.get("given"), list):
+                out += _fhir_name_rows(node, source)          # FHIR HumanName (EHR exports)
             first, last = node.get("first_name"), node.get("last_name")
             if isinstance(first, str) and isinstance(last, str) and first.strip() and last.strip():
                 out += _person_rows(f"{first.strip()} {last.strip()}", source)
@@ -190,6 +208,12 @@ def known_entries(rows, allow_orgs: set[str]) -> tuple[list[tuple[str, str, bool
                 lw = w.lower()
                 if len(w) >= 3 and lw not in STOP_WORDS and lw not in COMMON_WORD_NAMES:
                     entries.add((w, "PERSON", True))
+            # names written with digits (EHR test data such as Synthea: "Abram53 Hirthe744") match as written
+            coded = [unicodedata.normalize("NFC", t) for t in surface.split() if re.fullmatch(r"[^\W\d_][\w'-]*?\d+", t)]
+            if coded:
+                entries.update((t, "PERSON", True) for t in coded)
+                if len(surface.split()) >= 2:
+                    entries.add((" ".join(surface.split()), "PERSON", True))
         elif etype == "ORGANIZATION":
             if surface.lower() not in allow_orgs:
                 entries.add((surface, "ORGANIZATION", True))

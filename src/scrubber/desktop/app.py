@@ -242,17 +242,27 @@ def _save_batch_info(meta: dict) -> None:
     (batch_dir() / "batch.json").write_text(json.dumps(meta, indent=2))
 
 
+def batch_files(rows) -> list:
+    """The files a person thinks of as the batch: what they added, except that an unpacked zip
+    or Outlook file is shown as the files inside it."""
+    rows = list(rows)
+    converted = {r["rel"] for r in rows if r["status"] == "converted"}
+    return [r for r in rows if r["status"] != "removed" and (
+        (not r["parent"] and r["rel"] not in converted) or (r["parent"] in converted))]
+
+
 def batch_counts() -> dict:
     from ..state import Store
     db = current_paths().state / "state.db"
     if not db.exists():
         return {"files": 0}
-    files = [f for f in Store(db).files() if not f["parent"]]
+    files = batch_files(Store(db).files())
     by = {}
     for f in files:
         by[f["status"]] = by.get(f["status"], 0) + 1
     return {"files": len(files), "exported": by.get("done", 0), "review": by.get("review", 0),
             "not_exported": sum(by.get(k, 0) for k in ("quarantined", "failed", "rejected")),
+            "unfinished": sum(by.get(k, 0) for k in ("pending", "processing")),
             "records": sum(f["records"] or 0 for f in files)}
 
 
@@ -453,6 +463,8 @@ def main(argv: list[str] | None = None) -> int:
         return run(out)
     import webview
     port = serve_in_thread()
+    if batch_counts().get("unfinished"):
+        request_scrub()   # the app was closed mid-scrub: pick up where it stopped
     worker = Worker()
     threading.Thread(target=worker.loop, daemon=True).start()
     api = Api(worker)

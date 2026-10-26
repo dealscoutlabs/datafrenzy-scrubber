@@ -29,7 +29,7 @@ SLACK_ROOT_KINDS = {"users.json": "users", "org_users.json": "users", "channels.
                     "groups.json": "channels", "mpims.json": "channels", "dms.json": "channels"}
 
 
-def _members(zin: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
+def list_members(zin: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
     return [i for i in zin.infolist() if not i.is_dir() and not i.filename.startswith("__MACOSX/")
             and not PurePosixPath(i.filename).name.startswith("._")]
 
@@ -72,7 +72,7 @@ def _readable(info: zipfile.ZipInfo, ctx: Context, item: str) -> bool:
 
 def scrub_zip(src: BinaryIO, dst: BinaryIO, ctx: Context, item: str, depth: int = 0) -> None:
     with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zout:
-        members = _members(zin)
+        members = list_members(zin)
         root = slack_root([m.filename for m in members])
         if root is not None:
             _scrub_slack(zin, zout, members, root, ctx, item)

@@ -29,7 +29,7 @@ class Hooks:
         self._mode = mode
 
     def batch(self):
-        return {"files": 0, "exported": 0, "review": 0, "not_exported": 0, "records": 0}
+        return {"files": 0, "exported": 0, "review": 0, "not_exported": 0, "unfinished": 0, "records": 0}
 
     def history(self):
         return [{"started": 1767225600, "files": 3, "exported": 2, "review": 1, "not_exported": 0, "records": 10,
@@ -168,3 +168,16 @@ def test_text_clippings_are_not_added(tmp_path, monkeypatch):
     clip = tmp_path / "Discharge Report.textClipping"
     clip.write_bytes(b"bplist00")
     assert desktop.add_to_batch([str(clip)]) == 0
+
+
+def test_unfinished_batch_offers_continue(workspace, tmp_path, monkeypatch):
+    (tmp_path / "config").mkdir()
+    (workspace.input / "note.txt").write_text("hello")
+    client = _client(workspace, tmp_path)
+    monkeypatch.setattr(Hooks, "batch", lambda self: {"files": 2, "exported": 0, "review": 0, "not_exported": 0,
+                                                      "unfinished": 2, "records": 0})
+    from scrubber.pipeline import Runner  # a row so the batch table renders
+    from scrubber.config import load_config
+    Runner(workspace, load_config(), workers=1, echo=lambda *_: None).scan()
+    page = client.get("/").text
+    assert "Continue scrubbing" in page and "Nothing could be scrubbed" not in page

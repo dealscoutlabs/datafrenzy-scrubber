@@ -292,7 +292,7 @@ def dumps(obj: Any, indent: int | None, ascii_only: bool) -> str:
     return json.dumps(obj, indent=indent, ensure_ascii=ascii_only, separators=None if indent else (",", ":"))
 
 
-def verify_json(original_shape: Any, out_text: str, ctx: Context, item: str) -> None:
+def verify_json(original_shape: Any, out_text: str, ctx: Context, item: str, fhir_kept: set | None = None) -> None:
     try:
         obj = json.loads(out_text)
     except ValueError as exc:
@@ -301,7 +301,11 @@ def verify_json(original_shape: Any, out_text: str, ctx: Context, item: str) -> 
     if shape(obj) != original_shape:
         ctx.issue(f"{item}: JSON structure changed during scrubbing")
     from .tabular import needs_check
-    texts = [t for t in strings(obj) if needs_check(t)]
+    if fhir_kept is not None:
+        from .fhir import residual_strings
+        texts = [t for t in residual_strings(obj, fhir_kept) if needs_check(t)]
+    else:
+        texts = [t for t in strings(obj) if needs_check(t)]
     for i in range(0, len(texts), 2000):
         ctx.residual("\n\n".join(texts[i:i + 2000]), item)
 
@@ -310,6 +314,16 @@ def scrub_json_text(text: str, ctx: Context, item: str, slack: bool = False, kin
                     channel_names: dict | None = None) -> str:
     obj = json.loads(text)
     before = shape(obj)
+    from . import fhir
+    if not slack and fhir.is_fhir(obj):
+        out_obj, kept = fhir.scrub_fhir_obj(obj, ctx)
+        ctx.kept |= kept
+        out = dumps(out_obj, detect_indent(text), ascii_only="\\u" in text and not re.search(r"[^\x00-\x7f]", text))
+        if text.endswith("\n"):
+            out += "\n"
+        verify_json(before, out, ctx, item, fhir_kept=kept)
+        ctx.tally.records += len(out_obj.get("entry", [])) or 1
+        return out
     out_obj = scrub_json_obj(obj, ctx, slack=slack, kind=kind, channel_names=channel_names)
     out = dumps(out_obj, detect_indent(text), ascii_only="\\u" in text and not re.search(r"[^\x00-\x7f]", text))
     if text.endswith("\n"):

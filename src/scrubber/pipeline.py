@@ -52,6 +52,9 @@ UNSUPPORTED = {
     ".svg": "vector images (SVG) are not supported - save as PNG and re-run",
     ".psd": "Photoshop files are not supported - save as PNG/JPEG and re-run",
 }
+ZIP_EXPAND_FILES = 10            # zips with this many files or more are unpacked into separate items
+ZIP_EXPAND_BYTES = 50 << 20     # ... or this much data
+ZIP_MAX_BYTES = 50 << 30        # never unpack more than this (zip bombs)
 SYSTEM_FILES = {".ds_store", "thumbs.db", "desktop.ini", ".localized"}
 
 
@@ -333,6 +336,52 @@ class Runner:
                                        self.chash, parent=row["rel"])
             self.store.update_file(row["rel"], status="converted", reason="converted to mbox; see derived files")
 
+    def convert_archives(self) -> None:
+        """Large plain zips (not Slack exports) are unpacked into the work folder so each file
+        inside is its own work item: scrubbed in parallel, with progress, resumable. Their files
+        come out in a folder named "<zip name> (from zip)". Small zips stay one item."""
+        import zipfile
+        from pathlib import PurePosixPath
+        for row in self.store.files("pending"):
+            if row["kind"] != "zip":
+                continue
+            try:
+                with zipfile.ZipFile(row["src"]) as z:
+                    members = archive.list_members(z)
+                    if archive.slack_root([m.filename for m in members]) is not None:
+                        continue
+                    total = sum(m.file_size for m in members)
+                    if len(members) < ZIP_EXPAND_FILES and total < ZIP_EXPAND_BYTES:
+                        continue
+                    if total > ZIP_MAX_BYTES or any(m.flag_bits & 0x1 for m in members):
+                        continue  # huge or password-protected: the in-memory path reports it
+                    out = self.paths.work / "zip" / _file_id(row["rel"])
+                    if out.exists():
+                        shutil.rmtree(out)
+                    out.mkdir(parents=True)
+                    self.echo(f"Unpacking {row['rel']} ({len(members):,} files) ...")
+                    base = (row["rel"][:-4] if row["rel"].lower().endswith(".zip") else row["rel"]) + " (from zip)"
+                    for m in members:
+                        parts = [p for p in PurePosixPath(m.filename).parts if p not in ("", ".", "..", "/")]
+                        if not parts:
+                            continue
+                        target = out.joinpath(*parts)
+                        if out.resolve() not in target.resolve().parents:
+                            continue  # never write outside the work folder
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with z.open(m) as fin, open(target, "wb") as fout:
+                            shutil.copyfileobj(fin, fout, 1 << 20)
+                        kind, reason = classify(target)
+                        st = target.stat()
+                        derived = f"{base}/{'/'.join(parts)}"
+                        status = self.store.upsert_file(derived, str(target), kind, st.st_size,
+                                                        f"{m.CRC}:{m.file_size}", self.chash, parent=row["rel"])
+                        if reason and status == "pending":
+                            self.store.update_file(derived, status="quarantined", reason=reason)
+            except (zipfile.BadZipFile, OSError):
+                continue  # the in-memory path quarantines it with the reason
+            self.store.update_file(row["rel"], status="converted", reason="unpacked; see the files inside")
+
     def harvest(self) -> None:
         todo = [r for r in self.store.files("pending")
                 if r["kind"] in ("eml", "mbox", "csv", "xlsx", "ods", "zip", "json") and not r["harvested"]]
@@ -508,7 +557,8 @@ class Runner:
             derived = [r for r in self.store.files() if r["parent"] == row["rel"]]
             if derived and all(r["status"] in ("done", "review", "quarantined", "rejected") for r in derived):
                 if all(r["status"] != "review" for r in derived):
-                    shutil.rmtree(self.paths.work / "pst" / _file_id(row["rel"]), ignore_errors=True)
+                    for kind in ("pst", "zip"):
+                        shutil.rmtree(self.paths.work / kind / _file_id(row["rel"]), ignore_errors=True)
 
     # -- review decisions (the Phase 4 UI calls these too)
     def approve(self, rel: str, by: str, note: str = "") -> None:
@@ -600,6 +650,7 @@ class Runner:
         self.status(state="running", phase="scanning", done=0, total=0, started=time.time())
         self.scan()
         self.convert_pst()
+        self.convert_archives()
         self.harvest()
         self.echo("Loading the language model (offline) ...")
         self.build_scrubber()

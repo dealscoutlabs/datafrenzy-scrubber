@@ -126,12 +126,16 @@ class TextScrubber:
         group: list[int] = []
         size = 0
 
+        # an invisible separator (not whitespace) between the strings, so a pattern such as
+        # "Member ID: <value>" can never take its value from the next string
+        sep = "\n\u2063\n"
+
         def run(g: list[int]) -> None:
             bounds, pos = [], 0
             for i in g:
                 bounds.append((pos, pos + len(texts[i])))
-                pos += len(texts[i]) + 2
-            joined = "\n\n".join(texts[i] for i in g)
+                pos += len(texts[i]) + len(sep)
+            joined = sep.join(texts[i] for i in g)
             per: dict[int, list[Finding]] = {i: [] for i in g}
             for f in self.detector.detect(joined):
                 for i, (a, b) in zip(g, bounds):
@@ -186,6 +190,8 @@ class TextScrubber:
 
     def scrub_name(self, name: str, tally: Tally | None = None) -> str:
         """Scrub a file or folder name, keeping its extension."""
+        import unicodedata
+        name = unicodedata.normalize("NFC", name)  # macOS stores accented names decomposed ("u" + accent)
         stem, dot, ext = name.rpartition(".") if "." in name.strip(".") else (name, "", "")
         if not dot:
             stem, ext = name, ""
@@ -198,10 +204,15 @@ class TextScrubber:
         for f in findings:
             f.text = stem[f.start:f.end]
         out = self._apply(stem, findings, tally).text
+        # record IDs (UUIDs) in a file name identify the record, whatever the detectors decided
+        out = UUID_IN_NAME.sub(lambda m: self.pseudo.token("OTHER_ID", m.group(0)), out)
         return f"{out}.{ext}" if dot else out
 
     def years_in(self, text: str) -> set[int]:
         return {int(y) for y in YEAR4_RE.findall(text)}
+
+
+UUID_IN_NAME = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 
 def apply_spans_to_segments(segments: list[str], spans: list[tuple[int, int, str]]) -> list[str]:

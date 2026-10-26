@@ -14,6 +14,8 @@ This program removes patient and personal information from your business files *
 > - Word documents (`.docx`) and PDFs, including scanned PDFs
 > - photos and images (`.jpg`, `.png`, `.tif`, `.heic` and more)
 > - medical images (`.dcm` DICOM)
+> - EHR exports in FHIR (HL7 JSON bundles, e.g. Epic/Cerner/Synthea): codes kept, names/addresses/IDs/dates replaced by rule, record links preserved
+> - zip files (large zips are unpacked so their files are scrubbed in parallel; they come out in a "<name> (from zip)" folder)
 > - JSON files and plain text
 >
 > Voice recordings are never exported. You review everything in your web browser, and the scrubber writes a data manifest and a de-identification report for your compliance officer. Files the scrubber can't handle are **never exported**. They are listed in the report instead.

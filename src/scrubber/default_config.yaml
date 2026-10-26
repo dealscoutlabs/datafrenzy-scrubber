@@ -63,6 +63,13 @@ allowlist:
     - Moderna
     - Johnson & Johnson
     - Merck
+    # insurer names as EHR exports print them
+    - Cigna Health
+    - Aetna Health
+    - Humana Health
+    - Anthem Blue Cross
+    - Dual Eligible
+    - NO_INSURANCE
     # payroll and HR vendors (they print their own name on every tax form)
     - Paycor
     - Paycor, Inc.
