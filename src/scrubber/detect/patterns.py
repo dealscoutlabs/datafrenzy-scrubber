@@ -1,5 +1,7 @@
 """Regular expressions and word lists shared by the custom recognizers."""
 
+import re
+
 from ..transform.generalize import HOLIDAYS, MONTHS
 
 US_STATES = {
@@ -239,3 +241,20 @@ clinic office home house church school bank court field fields lake river spring
 call calls phone text email note notes chart labs lab test tests scan visit appointment bills pay paid
 stone stones wells banks wise strong sharp swift short small large hardy noble moody gentry
 """.split())
+
+# Clinical abbreviations of five or six capitals the language model reads as organizations
+# ("70 yo M with NIDDM"). Shorter all-caps words are already never organizations.
+CLINICAL_ABBREVIATIONS = set("""
+NIDDM IDDM STEMI NSTEMI NSAID NSAIDS BIPAP CPAP ARDS COPD CABG PTCA ERCP MRCP TURP ESWL
+ESRD CKD GERD MRSA VRE OSA AFIB PEG TPN CVA TIA DVT HIV AIDS ACLS PALS NKDA NPO
+HCTZ ASCVD CHADS LVEF HFREF HFPEF TAVR TAVI EGD SBRT IMRT AMI ACS PSVT VTACH VFIB
+""".split())
+
+# Common generic-drug name endings (USAN stems). A single word from the language model that ends
+# this way ("Hydroxychloroquine", "Metformin") is a drug, not a person or an organization.
+DRUG_STEM = re.compile(
+    r"(?i)^[a-z]{3,}(?:quine|mab|nib|tinib|pril|sartan|olol|alol|statin|azole|cillin|mycin|micin|cycline|"
+    r"floxacin|prazole|tidine|dipine|formin|gliptin|glitazone|parin|oxaparin|oxetine|azepam|azolam|triptan|"
+    r"ciclovir|clovir|navir|buvir|profen|coxib|olone|nisone|methasone|sonide|caine|zosin|terol|tropium|"
+    r"semide|thiazide|xaban|gatran|grel|lukast|setron|peridol|apine|idone|tadine|ridone|dronate|"
+    r"vastatin|lutamide|platin|rubicin|taxel|trexate|kinra|cept|glutide|gliflozin|tegravir|zumab|ximab)$")

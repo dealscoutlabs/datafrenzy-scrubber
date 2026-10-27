@@ -1,0 +1,72 @@
+{
+ "sample1.txt": [
+  "2009-04-07",
+  "5247840",
+  "Mark Villegas",
+  "Duke University Hospital",
+  "23 November",
+  "March 14th",
+  "04/07/2009",
+  "1543681632582",
+  "Sanjay Gupta",
+  "26545 Oak Street",
+  "04/15/2009",
+  "(432) 734-3810"
+ ],
+ "sample2.txt": [
+  "2011-02-18",
+  "Cedars-Sinai Medical Center",
+  "6320745325782",
+  "Yosef Villegas",
+  "(77) 70-567-34",
+  "yo_ages@hotmail.com",
+  "8249813",
+  "2/17/2011",
+  "Gilbert Perez",
+  "Samantha Jones",
+  "2/03/2011",
+  "Mike Ivan",
+  "2345 Spruce Street",
+  "(+1)310-423-3277"
+ ],
+ "sample3.txt": [
+  "2013-01-13",
+  "David Hale",
+  "Elvis Presley",
+  "(9) 7765-5632",
+  "7194334",
+  "01-13-1993",
+  "Oliveira",
+  "2012-11-09",
+  "Cocke County Baptist Hospital",
+  "0295 Keats Street",
+  "01/13/2013",
+  "(+1) 423-625-2200"
+ ],
+ "sample4.txt": [
+  "William Garcia",
+  "Beijing",
+  "Johns Hopkins Hospital",
+  "(541) 754-3010",
+  "100009632582",
+  "50712249",
+  "Hobbs Spruce",
+  "Perez",
+  "Johns Hopkins Hospital 1800 Orleans St",
+  "(+1) 410-955-5000"
+ ],
+ "sample5.txt": [
+  "2022-01-13",
+  "Ethan Hale",
+  "Ava Davis",
+  "davis_a@gmail.com",
+  "7190334",
+  "(555) 555-1212",
+  "01-13-1993",
+  "Oliveira",
+  "01/13/2022",
+  "754443200936",
+  "NewYork-Presbyterian Hospital . 525 East 68th Street",
+  "(85) 555-1212"
+ ]
+}

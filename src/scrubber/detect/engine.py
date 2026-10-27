@@ -183,7 +183,7 @@ class Detector:
             start, end = r.start, r.end
             span = text[start:end]
             # trim whitespace/punctuation the NER model sometimes includes
-            while span and span[-1] in " \t\r\n.,;:)\"'":
+            while span and span[-1] in " \t\r\n.,;:)\"'-":
                 if etype in ("DATE", "LOCATION", "ORGANIZATION", "PERSON") or span[-1] in " \t\r\n,;:\"":
                     end -= 1
                     span = text[start:end]
@@ -204,6 +204,18 @@ class Detector:
             while span and (span[0] in " \t\r\n\"'" or (span[0] == "(" and ")" not in span)):
                 start += 1
                 span = text[start:end]
+            if source == "SpacyRecognizer" and etype == "ORGANIZATION":
+                # "Cedars-Sinai Medical| Center": the model stops one word short of the facility name
+                m = FACILITY_TAIL.match(text, end)
+                if m:
+                    end = m.end()
+                    span = text[start:end]
+            if source == "SpacyRecognizer" and etype in ("PERSON", "ORGANIZATION"):
+                # the signer's credential runs into the next line's hospital ("M.D. Duke University Hospital")
+                m = CREDENTIAL_LEAD.match(span)
+                if m and m.end() < len(span):
+                    start += m.end()
+                    span = text[start:end]
             if not span:
                 continue
             etype = self._refine(text, start, end, span, etype, source)
@@ -250,14 +262,21 @@ class Detector:
             if low in self.allow_orgs or low.removeprefix("the ") in self.allow_orgs:
                 return None
             if source == "SpacyRecognizer" and (re.fullmatch(r"[A-Z0-9&/-]{1,4}", span.strip())
+                                                or span.strip() in P.CLINICAL_ABBREVIATIONS
                                                 or low in P.LARGE_PLACES):
-                return None  # clinical abbreviations (ICU, MRI, ER ...) read as orgs
+                return None  # clinical abbreviations (ICU, MRI, NIDDM ...) read as orgs
+            if source == "SpacyRecognizer" and P.DRUG_STEM.match(low):
+                return None  # "response noted to Hydroxychloroquine"
             return etype
         if etype == "PERSON":
             if not normalize_person(span):
                 return None
             if source == "SpacyRecognizer" and not re.search(r"[A-Za-z]{2}", span):
                 return None
+            if source == "SpacyRecognizer" and P.DRUG_STEM.match(low) and low.upper() not in self.last_names:
+                return None
+            if source == "SpacyRecognizer" and FACILITY_END.search(span):
+                return "ORGANIZATION"  # "Johns Hopkins Hospital" read as a person
             return etype
         if etype == "URL":
             host = re.sub(r"^[a-z]+://", "", low).split("/")[0]
@@ -269,6 +288,11 @@ class Detector:
         if etype == "ZIP_CODE":
             return etype
         return etype
+
+
+CREDENTIAL_LEAD = re.compile(r"(?:M\.D\.|MD|D\.O\.|DO|R\.N\.|RN|N\.P\.|NP|Ph\.D\.|PhD),?\s+")
+FACILITY_TAIL = re.compile(r"[ \t]+(?:Center|Centre|Hospital|Clinic|Infirmary)\b")
+FACILITY_END = re.compile(r"\b(?:Hospital|Medical Center|Health Center|Clinic|Infirmary|Health System)$", re.I)
 
 
 _NUMERIC_MD = re.compile(r"(?<![\d/])\d{1,2}/\d{1,2}(?![\d/])")

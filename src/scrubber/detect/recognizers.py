@@ -97,7 +97,10 @@ def labeled_id_recognizer(entity: str, labels: list[str], value_kind: str, idx: 
         sep = r"[ \t]*\**[ \t]*(?:is[ \t]+|=[ \t]*|:[ \t]*|#[ \t]*|-[ \t]*)\**[ \t]*[\"']?"
     elif value_kind in ("place", "name"):
         # a form field: "City of Birth: Jamesview", "First Name: Wazir", "**Customer:** Kelly"
-        value = r"[A-Z][A-Za-z'.-]+(?:[ -](?:[A-Z][A-Za-z'.-]+|de|del|la|van|von|da))" + ("{0,3}" if value_kind == "name" else "{0,2}")
+        # a period ends the name unless it closes an initial or abbreviation ("J.", "St."):
+        # "Name: Elvis Presley. Age: 17" is the name, then the next field's label
+        part = r"(?:[A-Z]\.|(?:St|Ste|Jr|Sr|Mc)\.|[A-Z][A-Za-z']*[A-Za-z])"
+        value = part + rf"(?:[ -](?:{part}|de|del|la|van|von|da))" + ("{0,3}" if value_kind == "name" else "{0,2}")
         sep = r"[ \t]*\**[ \t]*[:=][ \t]*\**[ \t]*[\"']?"   # same line only ("Patient:\nPhone:" is two fields)
         idword = r""
     elif value_kind == "plate":
